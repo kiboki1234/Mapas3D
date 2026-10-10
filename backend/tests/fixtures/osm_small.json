@@ -1,0 +1,28 @@
+{
+  "version": 0.6,
+  "generator": "fixture",
+  "elements": [
+    {
+      "type": "way",
+      "id": 1001,
+      "tags": {"building": "university", "name": "Edificio de prueba", "building:levels": "3"},
+      "geometry": [
+        {"lat": -0.31490, "lon": -78.44352},
+        {"lat": -0.31490, "lon": -78.44342},
+        {"lat": -0.31482, "lon": -78.44342},
+        {"lat": -0.31482, "lon": -78.44352},
+        {"lat": -0.31490, "lon": -78.44352}
+      ]
+    },
+    {
+      "type": "way",
+      "id": 2001,
+      "tags": {"highway": "residential", "name": "Vía de prueba"},
+      "geometry": [
+        {"lat": -0.31500, "lon": -78.44360},
+        {"lat": -0.31470, "lon": -78.44330}
+      ]
+    }
+  ]
+}
+

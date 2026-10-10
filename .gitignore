@@ -1,0 +1,40 @@
+# Entornos y dependencias
+backend/.venv/
+backend/*.egg-info/
+frontend/node_modules/
+frontend/dist/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Configuración local y credenciales
+.env
+.env.local
+*.pem
+*.key
+
+# Datos geográficos y artefactos generados
+data/cache/**
+data/generated/**
+data/osm/**
+data/overture/**
+data/buildings/**
+data/dem/**
+data/landcover/**
+data/*.sqlite3
+!data/**/.gitkeep
+
+# Runtime local
+.city3d-processes.json
+logs/
+*.log
+
+# Editor / sistema
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
