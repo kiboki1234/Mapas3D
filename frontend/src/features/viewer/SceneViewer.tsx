@@ -1,5 +1,5 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { Environment, Grid, OrbitControls, useGLTF } from "@react-three/drei";
+import { Grid, OrbitControls, useGLTF } from "@react-three/drei";
 import { Canvas, type ThreeEvent, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { Camera, CarFront, Crosshair, RotateCcw, Square, View } from "lucide-react";
@@ -32,11 +32,19 @@ function Model({ url, style }: { url: string; style: ViewerStyle }) {
     const clone = gltf.scene.clone(true);
     clone.traverse((object) => {
       if (object instanceof THREE.Mesh) {
+        // Los edificios con fachada y cubierta separadas cargan como un grupo glTF.
+        let source: THREE.Object3D | null = object;
+        while (source && !source.userData.feature_id) source = source.parent;
+        if (source) object.userData = { ...source.userData, ...object.userData };
         object.material = Array.isArray(object.material)
           ? object.material.map((material) => material.clone())
           : object.material.clone();
         object.castShadow = true;
         object.receiveShadow = true;
+        const materials = Array.isArray(object.material) ? object.material : [object.material];
+        materials.forEach((material) => {
+          if (material instanceof THREE.MeshStandardMaterial) material.userData.originalMap = material.map;
+        });
       }
     });
     return clone;
@@ -51,7 +59,8 @@ function Model({ url, style }: { url: string; style: ViewerStyle }) {
       const materials = Array.isArray(object.material) ? object.material : [object.material];
       materials.forEach((material) => {
         if (material instanceof THREE.MeshStandardMaterial) {
-          material.color.set(color);
+          material.map = style === "architectural" ? material.userData.originalMap ?? null : null;
+          material.color.set(material.map ? "#ffffff" : color);
           material.roughness = style === "architectural" ? 0.62 : 0.85;
           material.metalness = style === "night" ? 0.15 : 0.02;
           material.needsUpdate = true;
@@ -59,6 +68,15 @@ function Model({ url, style }: { url: string; style: ViewerStyle }) {
       });
     });
   }, [model, style]);
+
+  useEffect(() => () => {
+    model.traverse((object) => {
+      if (object instanceof THREE.Mesh) {
+        const materials = Array.isArray(object.material) ? object.material : [object.material];
+        materials.forEach((material) => material.dispose());
+      }
+    });
+  }, [model]);
 
   const select = (event: ThreeEvent<MouseEvent>) => {
     event.stopPropagation();
@@ -314,6 +332,7 @@ export function SceneViewer({ modelUrl }: { modelUrl: string }) {
       >
         <color attach="background" args={[style === "night" ? "#05070c" : "#0b1119"]} />
         <ambientLight intensity={style === "night" ? 0.55 : 1.15} />
+        <hemisphereLight args={["#e0edff", "#504537", style === "night" ? 0.3 : 1.2]} />
         <directionalLight position={[120, 180, 80]} intensity={style === "night" ? 1.1 : 2.2} castShadow />
         <Suspense fallback={<Loader />}>
           <Model url={modelUrl} style={style} />
@@ -325,7 +344,6 @@ export function SceneViewer({ modelUrl }: { modelUrl: string }) {
             onSpeed={setSpeedKmh}
           />
           <CameraController key={`${preset}-${presetTick}`} modelUrl={modelUrl} preset={preset} enabled={!driving} />
-          {style !== "night" && <Environment preset="city" />}
         </Suspense>
         <Grid
           infiniteGrid

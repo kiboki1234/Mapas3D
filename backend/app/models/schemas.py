@@ -49,6 +49,7 @@ class GenerationRequest(RegionPreviewRequest):
     include_buildings: bool = True
     include_roads: bool = True
     include_terrain: bool = False
+    material_style: Literal["plain", "procedural"] = "plain"
     lod: Literal["lod0", "lod1"] = "lod0"
     floor_height_m: float = Field(default=3.0, ge=2.0, le=6.0)
     unknown_height_m: float = Field(default=6.0, ge=2.0, le=30.0)

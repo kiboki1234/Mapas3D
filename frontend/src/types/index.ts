@@ -18,6 +18,7 @@ export interface GenerationRequest {
   include_buildings: boolean;
   include_roads: boolean;
   include_terrain: boolean;
+  material_style?: "plain" | "procedural";
   lod: "lod0" | "lod1";
   floor_height_m: number;
   unknown_height_m: number;

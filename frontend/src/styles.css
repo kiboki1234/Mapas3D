@@ -178,6 +178,19 @@ button { color: inherit; }
 .latest-event svg { color: var(--amber); flex: 0 0 auto; }
 .job-console > button { height: 27px; display: flex; align-items: center; gap: 5px; border: 1px solid #49313a; background: #1b1116; color: #d88896; border-radius: 5px; font-size: 8px; cursor: pointer; }
 .spin { animation: spin .85s linear infinite; }
+.generation-options { margin: 18px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; display: grid; gap: 9px; }
+.generation-options legend { color: #c9d9eb; font-size: 11px; padding: 0 5px; }
+.generation-options label { font-size: 10px; color: #a6bad0; }
+.generation-options select { min-height: 36px; width: 100%; background: #0a0f16; border: 1px solid #30445b; border-radius: 5px; color: var(--text); font-size: 11px; }
+.generation-options input { width: 100%; accent-color: var(--blue); }
+.generation-options p, .quality-notes p { margin: 2px 0; color: #91a3b9; font-size: 10px; line-height: 1.6; overflow-wrap: anywhere; }
+.quality-notes details { margin-top: 12px; }
+.quality-notes summary { cursor: pointer; font-size: 11px; color: var(--amber); }
+.quality-notes details p { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.viewer-error { height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 60px 30px; text-align: center; }
+.viewer-error p { max-width: 420px; color: #a6bad0; font-size: 13px; line-height: 1.7; }
+.viewer-error button { padding: 12px 18px; color: white; background: #176bc0; border: 0; border-radius: 6px; cursor: pointer; }
+button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid #70b5ff; outline-offset: 3px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 1080px) {
@@ -201,6 +214,7 @@ button { color: inherit; }
   .drive-hud { left: 52px; right: 12px; bottom: 48px; min-width: 0; }
   .drive-keys { display: none; }
   .job-console { min-height: 60px; grid-template-columns: 1fr; gap: 7px; padding: 10px 14px; }
-  .latest-event, .job-console > button { display: none; }
+  .latest-event { display: flex; white-space: normal; overflow-wrap: anywhere; font-size: 10px; line-height: 1.5; }
+  .job-console > button { display: flex; min-height: 42px; justify-content: center; font-size: 11px; }
 }
 

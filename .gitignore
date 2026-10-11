@@ -6,6 +6,8 @@ frontend/dist/
 **/__pycache__/
 *.py[cod]
 .pytest_cache/
+backend/.test-cache/
+backend/.test-runs/
 .coverage
 htmlcov/
 

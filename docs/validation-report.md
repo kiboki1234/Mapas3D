@@ -22,7 +22,23 @@ Fecha de la primera validación local: 2026-10-10, zona America/Guayaquil.
 - GLB contiene cabecera glTF 2.0, dos mallas y dos nodos.
 - `/api/health`, `/api/providers` y `/api/regions/preview` cumplen contrato.
 
-Resultado registrado: 10 pruebas superadas.
+Resultado registrado originalmente: 10 pruebas superadas.
+
+## Validación del generador 0.2
+
+- 20 pruebas automáticas superadas.
+- Contornos horarios y antihorarios conservan el mismo volumen.
+- Polígonos cóncavos, multipolígonos y polígonos con dos patios conservan área,
+  volumen y bordes cerrados.
+- El GLB exporta normales unitarias coherentes, UV métricas e índices compactos.
+- El validador detecta índices fuera de rango, triángulos degenerados, normales inválidas,
+  accesores fuera del buffer y escenas sin mallas.
+- Generación real con acabado procedural: 36 edificios, 106 vías, 142 mallas,
+  2.134 triángulos y tres texturas PNG incrustadas; tamaño 287.996 bytes.
+- Khronos glTF Validator: cero errores y cero advertencias. Se reportó únicamente una
+  observación informativa por un material de altura no utilizado en esta región.
+- El visor abrió el GLB generado, mostró el estilo Arquitectónico y no registró errores
+  ni advertencias en la consola.
 
 ## Validación real de extremo a extremo
 

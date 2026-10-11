@@ -7,12 +7,17 @@ from pathlib import Path
 from typing import Any, Iterable
 
 import numpy as np
+from shapely import constrained_delaunay_triangles
 from shapely.geometry import LineString, MultiPolygon, Polygon
 from shapely.geometry.base import BaseGeometry
-from shapely.ops import triangulate
+from shapely.geometry.polygon import orient
 
+from app.generation.materials import procedural_textures
+from app.generation.validation import validate_glb as validate_glb
 from app.models.domain import Building, FusedDataset
 from app.projection.service import LocalProjection
+
+GENERATOR_VERSION = "City3D Engine 0.2"
 
 
 def _polygons(geometry: BaseGeometry) -> Iterable[Polygon]:
@@ -23,7 +28,9 @@ def _polygons(geometry: BaseGeometry) -> Iterable[Polygon]:
 
 
 def _triangles_inside(polygon: Polygon) -> list[Polygon]:
-    return [triangle for triangle in triangulate(polygon) if polygon.covers(triangle.representative_point())]
+    # Respeta todo el contorno y los patios, no solo el centro de cada triángulo.
+    return [orient(triangle, sign=1.0)
+            for triangle in constrained_delaunay_triangles(polygon).geoms]
 
 
 def _mesh_for_extrusion(geometry: BaseGeometry, height: float) -> tuple[np.ndarray, np.ndarray]:
@@ -37,6 +44,7 @@ def _mesh_for_extrusion(geometry: BaseGeometry, height: float) -> tuple[np.ndarr
         indices.extend(start + value for value in order)
 
     for polygon in _polygons(geometry):
+        polygon = orient(polygon, sign=1.0)
         for triangle in _triangles_inside(polygon):
             coords = list(triangle.exterior.coords)[:3]
             add_triangle([(x, height, -y) for x, y in coords])
@@ -58,7 +66,9 @@ def _mesh_for_extrusion(geometry: BaseGeometry, height: float) -> tuple[np.ndarr
     return np.asarray(vertices, dtype="<f4"), np.asarray(indices, dtype="<u4")
 
 
-def _mesh_for_surface(geometry: BaseGeometry, elevation: float = 0.02) -> tuple[np.ndarray, np.ndarray]:
+def _mesh_for_surface(
+    geometry: BaseGeometry, elevation: float = 0.02
+) -> tuple[np.ndarray, np.ndarray]:
     vertices: list[tuple[float, float, float]] = []
     indices: list[int] = []
     for polygon in _polygons(geometry):
@@ -72,6 +82,7 @@ def _mesh_for_surface(geometry: BaseGeometry, elevation: float = 0.02) -> tuple[
 
 @dataclass
 class GlbBuilder:
+    textured: bool = False
     binary: bytearray = field(default_factory=bytearray)
     buffer_views: list[dict[str, Any]] = field(default_factory=list)
     accessors: list[dict[str, Any]] = field(default_factory=list)
@@ -82,14 +93,25 @@ class GlbBuilder:
         while len(self.binary) % 4:
             self.binary.append(0)
 
-    def _append(self, data: bytes, target: int) -> int:
+    def _append(self, data: bytes, target: int | None = None) -> int:
         self._align()
         offset = len(self.binary)
         self.binary.extend(data)
         index = len(self.buffer_views)
-        self.buffer_views.append(
-            {"buffer": 0, "byteOffset": offset, "byteLength": len(data), "target": target}
-        )
+        view = {"buffer": 0, "byteOffset": offset, "byteLength": len(data)}
+        if target is not None:
+            view["target"] = target
+        self.buffer_views.append(view)
+        return index
+
+    def _attribute(self, values: np.ndarray, kind: str) -> int:
+        view = self._append(values.astype("<f4").tobytes(), 34962)
+        index = len(self.accessors)
+        self.accessors.append({
+            "bufferView": view, "componentType": 5126, "count": len(values), "type": kind,
+            "min": values.min(axis=0).astype(float).tolist(),
+            "max": values.max(axis=0).astype(float).tolist(),
+        })
         return index
 
     def add_mesh(
@@ -102,41 +124,50 @@ class GlbBuilder:
     ) -> None:
         if len(vertices) == 0 or len(indices) == 0:
             return
-        position_view = self._append(vertices.tobytes(), 34962)
-        index_view = self._append(indices.tobytes(), 34963)
-        position_accessor = len(self.accessors)
-        self.accessors.append(
-            {
-                "bufferView": position_view,
-                "componentType": 5126,
-                "count": len(vertices),
-                "type": "VEC3",
-                "min": vertices.min(axis=0).astype(float).tolist(),
-                "max": vertices.max(axis=0).astype(float).tolist(),
-            }
-        )
-        index_accessor = len(self.accessors)
-        self.accessors.append(
-            {
-                "bufferView": index_view,
-                "componentType": 5125,
-                "count": len(indices),
-                "type": "SCALAR",
-                "min": [int(indices.min())],
-                "max": [int(indices.max())],
-            }
-        )
+        triangles = vertices[indices.reshape(-1, 3)].astype(np.float64)
+        crosses = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+        lengths = np.linalg.norm(crosses, axis=1)
+        if not np.isfinite(triangles).all() or np.any(lengths <= 1e-10):
+            raise ValueError(f"Malla {name}: coordenadas inválidas o triángulos degenerados")
+        normals = crosses / lengths[:, None]
+        flat = triangles.reshape(-1, 3)
+        vertex_normals = np.repeat(normals, 3, axis=0)
+        # UV en metros: fachadas con proyección horizontal sobre su propia pared.
+        horizontal = np.abs(vertex_normals[:, 1]) > 0.5
+        u = flat[:, 0] * -vertex_normals[:, 2] + flat[:, 2] * vertex_normals[:, 0]
+        uv = np.column_stack((np.where(horizontal, flat[:, 0], u),
+                              np.where(horizontal, flat[:, 2], -flat[:, 1]))) / 3.0
+        packed = np.column_stack((flat, vertex_normals, uv)).astype("<f4")
+        unique, inverse = np.unique(packed, axis=0, return_inverse=True)
+        attributes = {"POSITION": self._attribute(unique[:, :3], "VEC3"),
+                      "NORMAL": self._attribute(unique[:, 3:6], "VEC3")}
+        if self.textured:
+            attributes["TEXCOORD_0"] = self._attribute(unique[:, 6:8], "VEC2")
+        triangle_indices = inverse.reshape(-1, 3)
+        roof_mask = np.abs(normals[:, 1]) > 0.5
+        groups = [(material, triangle_indices)]
+        if self.textured and material != 3:
+            groups = [(material, triangle_indices[~roof_mask]), (4, triangle_indices[roof_mask])]
+        primitives = []
+        for material_id, group_indices in groups:
+            if not len(group_indices):
+                continue
+            index_type = "<u2" if len(unique) < 65535 else "<u4"
+            index_values = group_indices.ravel().astype(index_type)
+            accessor = len(self.accessors)
+            self.accessors.append({
+                "bufferView": self._append(index_values.tobytes(), 34963),
+                "componentType": 5123 if index_type == "<u2" else 5125,
+                "count": len(index_values), "type": "SCALAR",
+                "min": [int(index_values.min())], "max": [int(index_values.max())],
+            })
+            primitives.append({"attributes": attributes, "indices": accessor,
+                               "material": material_id, "mode": 4})
         mesh_index = len(self.meshes)
         self.meshes.append(
             {
                 "name": name,
-                "primitives": [
-                    {
-                        "attributes": {"POSITION": position_accessor},
-                        "indices": index_accessor,
-                        "material": material,
-                    }
-                ],
+                "primitives": primitives,
             }
         )
         self.nodes.append({"name": name, "mesh": mesh_index, "extras": extras})
@@ -145,29 +176,57 @@ class GlbBuilder:
         materials = [
             {
                 "name": "Altura explícita",
-                "pbrMetallicRoughness": {"baseColorFactor": [0.12, 0.55, 0.95, 1], "roughnessFactor": 0.82},
+                "pbrMetallicRoughness": {
+                    "baseColorFactor": [0.12, 0.55, 0.95, 1], "roughnessFactor": 0.82
+                },
                 "doubleSided": True,
             },
             {
                 "name": "Altura derivada",
-                "pbrMetallicRoughness": {"baseColorFactor": [0.18, 0.78, 0.52, 1], "roughnessFactor": 0.82},
+                "pbrMetallicRoughness": {
+                    "baseColorFactor": [0.18, 0.78, 0.52, 1], "roughnessFactor": 0.82
+                },
                 "doubleSided": True,
             },
             {
                 "name": "Altura desconocida",
-                "pbrMetallicRoughness": {"baseColorFactor": [0.52, 0.57, 0.64, 1], "roughnessFactor": 0.9},
+                "pbrMetallicRoughness": {
+                    "baseColorFactor": [0.52, 0.57, 0.64, 1], "roughnessFactor": 0.9
+                },
                 "doubleSided": True,
             },
             {
                 "name": "Carreteras",
-                "pbrMetallicRoughness": {"baseColorFactor": [0.10, 0.12, 0.15, 1], "roughnessFactor": 0.95},
+                "pbrMetallicRoughness": {
+                    "baseColorFactor": [0.10, 0.12, 0.15, 1], "roughnessFactor": 0.95
+                },
                 "doubleSided": True,
             },
         ]
+        images = []
+        if self.textured:
+            for name, png in procedural_textures():
+                images.append({"name": name, "bufferView": self._append(png),
+                               "mimeType": "image/png"})
+            materials.append({"name": "Cubiertas planas", "pbrMetallicRoughness": {}})
+        for index, mat in enumerate(materials):
+            pbr = mat["pbrMetallicRoughness"]
+            pbr["metallicFactor"] = 0.0
+            mat["doubleSided"] = index == 3
+            if self.textured:
+                texture_index = 1 if index == 3 else 2 if index == 4 else 0
+                pbr["baseColorTexture"] = {"index": texture_index}
+                pbr["baseColorFactor"] = [1, 1, 1, 1]
+                pbr["roughnessFactor"] = 0.9
+                mat["extras"] = {"appearance": "procedural", "observed": False}
         document = {
-            "asset": {"version": "2.0", "generator": "City3D Engine 0.1"},
+            "asset": {"version": "2.0", "generator": GENERATOR_VERSION},
             "scene": 0,
-            "scenes": [{"name": "City3D Scene", "nodes": list(range(len(self.nodes))), "extras": metadata}],
+            "scenes": [{
+                "name": "City3D Scene",
+                "nodes": list(range(len(self.nodes))),
+                "extras": metadata,
+            }],
             "nodes": self.nodes,
             "meshes": self.meshes,
             "materials": materials,
@@ -175,6 +234,11 @@ class GlbBuilder:
             "bufferViews": self.buffer_views,
             "buffers": [{"byteLength": len(self.binary)}],
         }
+        if images:
+            document.update({"images": images,
+                             "samplers": [{"magFilter": 9729, "minFilter": 9987,
+                                           "wrapS": 10497, "wrapT": 10497}],
+                             "textures": [{"sampler": 0, "source": i} for i in range(len(images))]})
         json_chunk = json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         while len(json_chunk) % 4:
             json_chunk += b" "
@@ -197,7 +261,7 @@ def _material_for(building: Building) -> int:
 def export_glb(
     fused: FusedDataset, projection: LocalProjection, path: Path, metadata: dict[str, Any]
 ) -> None:
-    builder = GlbBuilder()
+    builder = GlbBuilder(textured=metadata.get("request", {}).get("material_style") == "procedural")
     for building in fused.buildings:
         geometry = projection.project_geometry(building.geometry)
         height = float(building.attributes["height"].value)
@@ -229,25 +293,4 @@ def export_glb(
             {"feature_id": road.id, "source": road.provider, "road_class": road.road_class},
         )
     builder.write(path, metadata)
-
-
-def validate_glb(path: Path) -> dict[str, Any]:
-    data = path.read_bytes()
-    if len(data) < 20:
-        raise ValueError("GLB demasiado pequeño")
-    magic, version, declared_length = struct.unpack("<4sII", data[:12])
-    if magic != b"glTF" or version != 2 or declared_length != len(data):
-        raise ValueError("Cabecera GLB inválida")
-    json_length, json_type = struct.unpack("<I4s", data[12:20])
-    if json_type != b"JSON":
-        raise ValueError("Primer chunk GLB no es JSON")
-    document = json.loads(data[20 : 20 + json_length].decode("utf-8"))
-    if not document.get("scenes") or "asset" not in document:
-        raise ValueError("Documento glTF incompleto")
-    return {
-        "bytes": len(data),
-        "meshes": len(document.get("meshes", [])),
-        "nodes": len(document.get("nodes", [])),
-        "generator": document["asset"].get("generator"),
-    }
 

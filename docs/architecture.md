@@ -49,11 +49,22 @@ Overture es la fuente consolidada inicial. OSM puede enriquecer altura, pisos y 
 
 SQLite basta para persistir estados en una máquina. `BackgroundTasks` ejecuta el trabajo fuera de la respuesta HTTP. Antes de producción multiusuario se debe migrar el procesamiento a un worker duradero con límites de CPU/memoria.
 
+### ADR-005 — GLB autocontenido y materiales procedurales
+
+El generador 0.2 utiliza triangulación de Delaunay restringida para conservar contornos
+cóncavos y patios. Emite normales, UV métricas y, cuando se solicita, texturas PNG
+procedurales dentro del mismo GLB. Fachadas, cubiertas y asfalto comparten materiales para
+evitar una textura por objeto. La apariencia procedural queda marcada como no observada en
+los metadatos y no se presenta como reconstrucción fotográfica.
+
+La caché de generaciones incluye la versión del generador para impedir que un cambio de
+geometría reutilice modelos antiguos con el mismo conjunto de parámetros.
+
 ## Riesgos conocidos
 
 - La fusión inicial no modela todavía edificios con partes de forma jerárquica.
 - El algoritmo O(n²) está limitado por el radio máximo; regiones extensas requieren índice espacial y sectores.
 - El generador no crea tejados inclinados ni DEM.
 - Overpass público no ofrece SLA y debe reemplazarse por extractos para uso sostenido.
-- La triangulación GLB debe validarse con más polígonos complejos antes de producción.
+- Los tejados siguen siendo planos; las formas inclinadas requieren datos y una fase LOD1.
 

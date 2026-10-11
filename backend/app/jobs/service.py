@@ -10,7 +10,7 @@ from app.conflation.service import fuse_results
 from app.core.config import Settings
 from app.core.errors import GenerationCancelledError
 from app.data_quality.service import analyze_quality
-from app.generation.glb import export_glb, validate_glb
+from app.generation.glb import GENERATOR_VERSION, export_glb, validate_glb
 from app.generation.scene import build_scene
 from app.jobs.repository import JobRepository
 from app.licensing.registry import attribution_text, provider_license, validate_profile
@@ -33,7 +33,7 @@ class GenerationService:
 
     @staticmethod
     def request_hash(request: GenerationRequest) -> str:
-        payload = request.model_dump_json(exclude_none=True)
+        payload = GENERATOR_VERSION + ":" + request.model_dump_json(exclude_none=True)
         return hashlib.sha256(payload.encode()).hexdigest()
 
     @staticmethod
@@ -46,6 +46,8 @@ class GenerationService:
             return False
         try:
             quality = json.loads(Path(quality_path).read_text(encoding="utf-8"))
+            if not isinstance(quality, dict):
+                return False
             return int(quality.get("unique_buildings", 0)) > 0 or int(quality.get("roads", 0)) > 0
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             return False
@@ -180,6 +182,14 @@ class GenerationService:
             generated_at = datetime.now(timezone.utc).isoformat()
             metadata = {
                 "schema_version": "1.0",
+                "generator_version": GENERATOR_VERSION,
+                "appearance": {
+                    "style": request.material_style,
+                    "observed": False,
+                    "description": (
+                        "Materiales ilustrativos; no son fotografías ni fachadas reales."
+                    ),
+                },
                 "generation_id": job_id,
                 "generated_at": generated_at,
                 "request": request.model_dump(),
@@ -221,6 +231,8 @@ class GenerationService:
                 event=JobEvent(message="Validando estructura del archivo GLB."),
             )
             validation = validate_glb(paths["model"])
+            if validation["meshes"] == 0:
+                raise ValueError("La generación no produjo mallas exportables.")
             metadata["glb_validation"] = validation
             self._write_json(paths["metadata"], metadata)
             self.repository.update(

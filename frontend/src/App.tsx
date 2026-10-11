@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   Box,
   Building2,
@@ -18,6 +18,8 @@ import {
   X,
 } from "lucide-react";
 import { SourceBadge } from "./components/SourceBadge";
+import { ViewerErrorBoundary } from "./components/ViewerErrorBoundary";
+import { GenerationOptions } from "./features/generation/GenerationOptions";
 import { api } from "./services/api";
 import { AreaMap } from "./features/map/AreaMap";
 import { useAppStore } from "./stores/appStore";
@@ -74,6 +76,12 @@ export default function App() {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pollError, setPollError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const submission = useRef(false);
+  const [materialStyle, setMaterialStyle] = useState<"plain" | "procedural">("plain");
+  const [floorHeight, setFloorHeight] = useState(3);
+  const [unknownHeight, setUnknownHeight] = useState(6);
 
   useEffect(() => {
     api.providers()
@@ -86,16 +94,25 @@ export default function App() {
 
   useEffect(() => {
     if (!job || !ACTIVE_STATUSES.has(job.status)) return;
-    const timer = window.setInterval(async () => {
+    const id = job.id;
+    let cancelled = false;
+    let timer: number;
+    const poll = async () => {
       try {
-        const updated = await api.generation(job.id);
+        const updated = await api.generation(id);
+        if (cancelled) return;
+        setPollError(null);
         setJob(updated);
+        if (!ACTIVE_STATUSES.has(updated.status)) return;
       } catch (reason) {
-        setError(reason instanceof Error ? reason.message : "No se pudo actualizar el trabajo");
+        if (cancelled) return;
+        setPollError(reason instanceof Error ? reason.message : "No se pudo actualizar el trabajo");
       }
-    }, 1200);
-    return () => window.clearInterval(timer);
-  }, [job, setJob]);
+      if (!cancelled) timer = window.setTimeout(() => void poll(), 1600);
+    };
+    timer = window.setTimeout(() => void poll(), 800);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [job?.id, job?.status, setJob]);
 
   useEffect(() => {
     if (!job || job.status !== "completed") return;
@@ -104,6 +121,7 @@ export default function App() {
       .then((report) => {
         if (cancelled) return;
         setQuality(report);
+        if (job.request.material_style === "procedural") setViewerStyle("architectural");
         setActiveView("3d");
       })
       .catch((reason: Error) => {
@@ -112,10 +130,12 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [job?.id, job?.status, setActiveView, setQuality]);
+  }, [job?.id, job?.status, setActiveView, setQuality, setViewerStyle]);
 
   const modelUrl = job?.status === "completed" ? api.artifactUrl(job.id, "model") : null;
-  const canGenerate = selectedProviders.length > 0 && !job?.status.startsWith("download") && !job?.cancel_requested;
+  const busy = submitting || ACTIVE_STATUSES.has(job?.status ?? "");
+  const canGenerate = selectedProviders.length > 0 && !busy;
+  const visibleError = error ?? pollError ?? job?.error;
   const coordinateText = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
 
   const runSearch = async () => {
@@ -132,6 +152,12 @@ export default function App() {
   };
 
   const generate = async () => {
+    if (submission.current || !canGenerate) return;
+    if (!Number.isFinite(latitude) || Math.abs(latitude) > 90
+        || !Number.isFinite(longitude) || Math.abs(longitude) > 180) {
+      setError("Ingrese coordenadas válidas: latitud entre -90 y 90 y longitud entre -180 y 180.");
+      return;
+    }
     const request: GenerationRequest = {
       latitude,
       longitude,
@@ -140,18 +166,33 @@ export default function App() {
       include_buildings: true,
       include_roads: includeRoads,
       include_terrain: false,
+      material_style: materialStyle,
       lod: "lod0",
-      floor_height_m: 3,
-      unknown_height_m: 6,
+      floor_height_m: floorHeight,
+      unknown_height_m: unknownHeight,
       license_profile: "commercial",
     };
     setError(null);
-    setQuality(null);
+    setPollError(null);
+    submission.current = true;
+    setSubmitting(true);
     try {
-      setJob(await api.createGeneration(request));
+      const created = await api.createGeneration(request);
+      if (created.id !== job?.id) setQuality(null);
+      useAppStore.getState().setSelectedFeature(null);
+      setJob(created);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "No se pudo iniciar la generación");
+    } finally {
+      submission.current = false;
+      setSubmitting(false);
     }
+  };
+
+  const cancelGeneration = async () => {
+    if (!job) return;
+    try { setJob(await api.cancel(job.id)); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo cancelar"); }
   };
 
   const toggleProvider = (id: "overture" | "osm") => {
@@ -190,7 +231,7 @@ export default function App() {
           <i>{coordinateText}</i>
         </div>
         <div className="top-actions">
-          <span className={`api-state ${error ? "error" : ""}`}><i /> {error ? "Atención" : "API local"}</span>
+          <span className={`api-state ${visibleError ? "error" : ""}`}><i /> {visibleError ? "Atención" : "City3D API"}</span>
           <button className="icon-button" title="Descargar GLB" disabled={!modelUrl} onClick={() => modelUrl && window.open(modelUrl)}>
             <CloudDownload size={18} />
           </button>
@@ -249,9 +290,12 @@ export default function App() {
             <span><Sparkles size={15} /> Relieve DEM <small>próximamente</small></span>
             <input type="checkbox" disabled />
           </label>
+          <GenerationOptions materialStyle={materialStyle} floorHeight={floorHeight}
+            unknownHeight={unknownHeight} disabled={busy} onMaterialStyle={setMaterialStyle}
+            onFloorHeight={setFloorHeight} onUnknownHeight={setUnknownHeight} />
           <button className="generate-button" onClick={() => void generate()} disabled={!canGenerate || ACTIVE_STATUSES.has(job?.status ?? "")}>
             {job && ACTIVE_STATUSES.has(job.status) ? <LoaderCircle className="spin" size={18} /> : <Play size={18} fill="currentColor" />}
-            {job && ACTIVE_STATUSES.has(job.status) ? statusLabels[job.status] : "Generar escenario"}
+            {submitting ? "Iniciando…" : job && ACTIVE_STATUSES.has(job.status) ? statusLabels[job.status] : "Generar escenario"}
           </button>
           <p className="fine-print">Área máxima: 1 km de radio · Perfil comercial · Procesamiento local</p>
         </aside>
@@ -271,9 +315,11 @@ export default function App() {
               onAreaChange={(lat, lon, nextRadius) => { setLatitude(lat); setLongitude(lon); setRadius(nextRadius); setSelectMode(false); }}
             />
           ) : (
+            <ViewerErrorBoundary key={modelUrl} onReturn={() => setActiveView("map")}>
             <Suspense fallback={<div className="stage-loading"><LoaderCircle className="spin" size={24} /> Preparando visor 3D…</div>}>
               <SceneViewer modelUrl={modelUrl} />
             </Suspense>
+            </ViewerErrorBoundary>
           )}
           <div className="stage-status">
             <span><MapPin size={13} /> UTM {latitude < 0 ? "sur" : "norte"} · Metros</span>
@@ -301,13 +347,25 @@ export default function App() {
           </section>
           <section className="inspector-section">
             <div className="section-title"><span>Estilo visual</span></div>
-            <select value={viewerStyle} onChange={(event) => setViewerStyle(event.target.value as ViewerStyle)}>
+            <select aria-label="Estilo visual" value={viewerStyle} onChange={(event) => setViewerStyle(event.target.value as ViewerStyle)}>
               <option value="cartographic">Cartográfico</option>
               <option value="architectural">Arquitectónico</option>
               <option value="night">Nocturno</option>
               <option value="gis">Análisis GIS</option>
             </select>
           </section>
+          {quality && <section className="inspector-section quality-notes">
+            <div className="section-title"><span>Fuentes y límites del modelo</span></div>
+            <p>Escala métrica · Terreno plano · Cubiertas planas</p>
+            {Object.entries(quality.buildings_by_source_before_fusion).map(([source, count]) => (
+              <div className="legend-row" key={source}><span /><span>{source === "osm" ? "OpenStreetMap" : "Overture"}</span><b>{count}</b></div>
+            ))}
+            <p>Recuentos antes de fusionar duplicados.</p>
+            {job?.request.material_style === "procedural" && <p>Fachadas decorativas incluidas en el GLB. Use Arquitectónico para verlas.</p>}
+            <details><summary>Advertencias ({quality.warnings.length})</summary>
+              {quality.warnings.map((warning, index) => <p key={index}>{warning}</p>)}
+            </details>
+          </section>}
           <section className="inspector-section selected-object">
             <div className="section-title"><span>Objeto seleccionado</span>{selectedFeature && <MousePointer2 size={14} />}</div>
             {selectedFeature ? (
@@ -335,10 +393,10 @@ export default function App() {
           {job && <code>{job.id.slice(0, 8)}</code>}
         </div>
         <div className="progress-track"><span style={{ width: `${job?.progress ?? 0}%` }} /></div>
-        <div className="latest-event">
-          {error ? <><CircleAlert size={15} /> {error}</> : job?.events.at(-1)?.message ?? "Seleccione una región y las fuentes de datos."}
+        <div className="latest-event" role={visibleError ? "alert" : "status"} title={visibleError ?? job?.events.at(-1)?.message}>
+          {visibleError ? <><CircleAlert size={15} /> {visibleError}</> : job?.events.at(-1)?.message ?? "Seleccione una región y las fuentes de datos."}
         </div>
-        {job && ACTIVE_STATUSES.has(job.status) && <button onClick={() => void api.cancel(job.id).then(setJob)}><X size={14} /> Cancelar</button>}
+        {job && ACTIVE_STATUSES.has(job.status) && <button disabled={job.cancel_requested} onClick={() => void cancelGeneration()}><X size={14} /> {job.cancel_requested ? "Cancelando…" : "Cancelar"}</button>}
       </footer>
     </main>
   );

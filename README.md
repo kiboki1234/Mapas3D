@@ -70,10 +70,11 @@ La interfaz parte de las coordenadas documentadas del campus matriz de la Univer
 
 1. Mantenga un radio de 250 m.
 2. Active OSM; active Overture si aparece disponible.
-3. Pulse **Generar escenario**.
-4. Observe el progreso inferior hasta `Completado`.
-5. Cambie a **Escena 3D**, seleccione un edificio y revise fuente/altura.
-6. Descargue el modelo GLB y `metadata.json`.
+3. En **Modelo 3D**, elija colores de calidad o texturas procedurales exportables.
+4. Pulse **Generar escenario**.
+5. Observe el progreso inferior hasta `Completado`.
+6. Cambie a **Escena 3D**, seleccione un edificio y revise fuente/altura.
+7. Descargue el modelo GLB y `metadata.json`.
 
 Si una fuente falla, el trabajo continúa con las restantes. Si ninguna devuelve datos, el sistema informa el fallo y no crea construcciones ficticias.
 
@@ -91,9 +92,13 @@ cd backend
 
 cd ..\frontend
 npm run build
+npm run validate:glb -- "D:\ruta\al\modelo.glb"
 ```
 
-Las pruebas sin Internet validan proyección UTM, dimensiones 20 × 10 m, normalización OSM, fusión, no fusión de edificios adyacentes, generación/estructura GLB y contratos de API.
+Las pruebas sin Internet validan proyección UTM, dimensiones 20 × 10 m,
+normalización OSM, fusión, no fusión de edificios adyacentes, polígonos cóncavos,
+patios, multipolígonos, volumen, normales, texturas incrustadas, estructura GLB y
+contratos de API. `validate:glb` ejecuta además el validador oficial de Khronos.
 
 ## Estructura
 
