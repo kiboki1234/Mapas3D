@@ -8,6 +8,7 @@ Cada trabajo registra proveedor, dataset, URL, licencia, fecha, recuento, caché
 |---|---|
 | OpenStreetMap | ODbL-1.0, `© OpenStreetMap contributors` |
 | Overture Buildings | ODbL-1.0, `© OpenStreetMap contributors, Overture Maps Foundation` |
+| Mapzen Terrain Tiles | Fuentes DEM abiertas múltiples; atribución a USGS y demás fuentes indicadas por Tilezen |
 
 Overture Buildings integra fuentes con atribuciones adicionales. El archivo `ATTRIBUTIONS.txt` acompaña cada modelo y enlaza los términos oficiales.
 

@@ -11,7 +11,7 @@ from shapely.geometry import LineString, MultiPolygon, Polygon
 from app.generation.glb import (
     GlbBuilder, _mesh_for_extrusion, _triangles_inside, export_glb, validate_glb,
 )
-from app.models.domain import AttributeValue, Building, FusedDataset, Road
+from app.models.domain import AttributeValue, Building, FusedDataset, Road, TerrainGrid
 from app.projection.service import LocalProjection
 
 
@@ -75,39 +75,38 @@ def test_extrusion_preserves_footprint_holes_volume_and_closed_edges(polygon):
     assert vertices[:, 1].max() == 12
 
 
-def _builder(textured=True):
+def _builder():
     geometry = MultiPolygon([
         Polygon([(0, 0), (20, 0), (20, 10), (0, 10)]),
         Polygon([(30, 0), (35, 0), (35, 5), (30, 5)]),
     ])
     vertices, indices = _mesh_for_extrusion(geometry, 9)
-    builder = GlbBuilder(textured=textured)
+    builder = GlbBuilder()
     builder.add_mesh("building", vertices, indices, 0, {"feature_id": "test"})
     return builder
 
 
-def test_textured_glb_embeds_png_uv_normals_and_separate_roofs(tmp_path):
-    path = tmp_path / "textured.glb"
+def test_source_glb_contains_normals_and_no_synthetic_textures(tmp_path):
+    path = tmp_path / "source.glb"
     _builder().write(path, {})
     report = validate_glb(path)
-    assert report["textures"] == 3
+    assert report["textures"] == 0
     assert report["triangles"] == 24
     raw = path.read_bytes()
     json_length = struct.unpack_from("<I", raw, 12)[0]
     document = json.loads(raw[20:20 + json_length])
     primitives = document["meshes"][0]["primitives"]
-    assert {item["material"] for item in primitives} == {0, 4}
+    assert {item["material"] for item in primitives} == {0}
     for primitive in primitives:
-        assert set(primitive["attributes"]) == {"POSITION", "NORMAL", "TEXCOORD_0"}
+        assert set(primitive["attributes"]) == {"POSITION", "NORMAL"}
         assert document["accessors"][primitive["indices"]]["componentType"] == 5123
-    assert all("uri" not in image for image in document["images"])
     assert all(material["pbrMetallicRoughness"]["metallicFactor"] == 0
                for material in document["materials"])
 
 
 def test_glb_validation_rejects_out_of_range_indices(tmp_path):
     path = tmp_path / "corrupt.glb"
-    _builder(False).write(path, {})
+    _builder().write(path, {})
     raw = bytearray(path.read_bytes())
     json_length = struct.unpack_from("<I", raw, 12)[0]
     document = json.loads(raw[20:20 + json_length])
@@ -124,4 +123,48 @@ def test_glb_validation_rejects_empty_scene(tmp_path):
     GlbBuilder().write(path, {})
     with pytest.raises(ValueError, match="mallas"):
         validate_glb(path)
+
+
+def test_dem_terrain_changes_ground_height_and_is_exported(tmp_path):
+    building = Building(
+        id="measured-building",
+        geometry=Polygon([
+            (-78.44350, -0.31489), (-78.44344, -0.31489),
+            (-78.44344, -0.31483), (-78.44350, -0.31483),
+        ]),
+        provider="osm",
+        original_ids={"osm": "way/9"},
+        attributes={
+            "height": AttributeValue(10.0, "osm"),
+            "height_type": AttributeValue("explicit", "osm"),
+        },
+    )
+    terrain = TerrainGrid(
+        longitudes=np.array([-78.44360, -78.44335]),
+        latitudes=np.array([-0.31500, -0.31470]),
+        elevations_m=np.array([[2790.0, 2792.0], [2800.0, 2802.0]], dtype=np.float32),
+        reference_elevation_m=2796.0,
+        source={
+            "provider": "mapzen-terrain",
+            "dataset": "Terrarium",
+            "vertical_datum": "EGM96",
+            "elevation_min_m": 2790.0,
+            "elevation_max_m": 2802.0,
+        },
+    )
+    path = tmp_path / "terrain.glb"
+    export_glb(
+        FusedDataset([building], [], [], [], []),
+        LocalProjection.at(-0.314861, -78.443472),
+        path,
+        {"test": True},
+        terrain,
+    )
+    report = validate_glb(path)
+    assert report["meshes"] == 2
+    raw = path.read_bytes()
+    json_length = struct.unpack_from("<I", raw, 12)[0]
+    document = json.loads(raw[20:20 + json_length])
+    assert document["nodes"][0]["extras"]["feature_type"] == "terrain"
+    assert document["nodes"][1]["extras"]["ground_elevation_m"] > 2790
 

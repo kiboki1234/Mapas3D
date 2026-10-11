@@ -32,6 +32,8 @@ La UI obtiene capacidades del backend. Las rutas se consumen a través de `servi
 - Overture puede contener registros derivados de OSM/Microsoft/Google: consultar todo de nuevo produce duplicación y costo sin evidencia.
 - Un servicio público puede fallar aunque el código sea correcto; se requiere caché, fallback y mensajes claros.
 - La altura visual por defecto nunca debe etiquetarse como medición.
+- Sobremuestrear un DEM no crea detalle nuevo; se registra la resolución efectiva de la fuente.
+- El relieve debe mover también vías y bases de edificios, no limitarse a una malla decorativa.
 
 ## Antes de un commit
 

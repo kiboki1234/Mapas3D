@@ -1,8 +1,8 @@
 # City3D Engine
 
-City3D Engine transforma datos geográficos abiertos de una región pequeña en una escena 3D navegable y exportable. La primera versión funcional consulta OpenStreetMap y Overture Maps, normaliza sus edificios, evita duplicados mediante evidencia espacial, conserva la procedencia por atributo y genera un archivo GLB con dimensiones métricas.
+City3D Engine transforma datos geográficos abiertos de una región pequeña en una escena 3D navegable y exportable. Consulta OpenStreetMap y Overture Maps, incorpora relieve DEM Terrarium, normaliza edificios y vías, conserva la procedencia por atributo y genera un archivo GLB con dimensiones métricas.
 
-Esta entrega es un **MVP vertical verificable**, no una reconstrucción fotorealista. El terreno actual es plano y las alturas desconocidas usan un valor únicamente visual, marcado como tal en el modelo y los metadatos.
+Esta entrega es un **MVP vertical verificable**, no una reconstrucción fotorealista. El relieve procede de datos DEM reales. Cuando no existe altura ni número de pisos, el edificio se conserva únicamente como huella y no se inventa un volumen.
 
 ## Flujo implementado
 
@@ -13,9 +13,10 @@ Esta entrega es un **MVP vertical verificable**, no una reconstrucción fotoreal
 5. Descargar y cachear los datos por región y proveedor.
 6. Proyectar WGS84 a la zona UTM local apropiada.
 7. Detectar duplicados con identificadores, IoU, áreas y distancia entre centroides.
-8. Resolver alturas explícitas, derivadas de pisos o desconocidas.
-9. Generar mallas de edificios y superficies de carreteras.
-10. Visualizar, inspeccionar y descargar GLB, metadatos y atribuciones.
+8. Resolver alturas explícitas, derivadas de pisos o conservar solo la huella.
+9. Descargar y muestrear elevaciones DEM; ajustar terreno, edificios y vías.
+10. Generar mallas de edificios, carreteras y relieve.
+11. Visualizar, inspeccionar y descargar GLB, metadatos y atribuciones.
 
 ## Estado real de las fases
 
@@ -25,7 +26,7 @@ Esta entrega es un **MVP vertical verificable**, no una reconstrucción fotoreal
 | 1 · Generador mínimo | Implementada | React + FastAPI + OSM + visor + GLB |
 | 2 · Overture y fusión | Implementada para edificios | Cliente oficial, GERS, procedencia, fusión inicial |
 | 3 · Fuentes complementarias | Pendiente | Se evita consultar Microsoft/Google por duplicado sin justificación |
-| 4 · Relieve | Pendiente | Fallback plano explícito; no se inventa elevación |
+| 4 · Relieve | Implementada | DEM Terrarium real, datum, resolución, caché y malla ajustada |
 | 5 · Ambientación | Pendiente | Sin vegetación procedural engañosa |
 | 6 · Optimización | Parcial | Caché y límites; faltan sectores/LOD avanzado |
 | 7 · Exportación | Parcial | GLB + JSON + atribuciones; falta ZIP/Blender/Godot automatizado |
@@ -36,7 +37,7 @@ Esta entrega es un **MVP vertical verificable**, no una reconstrucción fotoreal
 - Windows 10 u 11 con PowerShell.
 - Python 3.11 o superior.
 - Node.js 20 o superior y npm.
-- Acceso a Internet para Overture, Overpass, Nominatim y teselas del mapa.
+- Acceso a Internet para Overture, Overpass, Nominatim, teselas del mapa y DEM Terrarium.
 - Java solo será obligatorio cuando se active el adaptador opcional de OSM2World.
 
 No requiere Docker, WSL, tarjeta bancaria ni API comercial.
@@ -70,11 +71,12 @@ La interfaz parte de las coordenadas documentadas del campus matriz de la Univer
 
 1. Mantenga un radio de 250 m.
 2. Active OSM; active Overture si aparece disponible.
-3. En **Modelo 3D**, elija colores de calidad o texturas procedurales exportables.
-4. Pulse **Generar escenario**.
-5. Observe el progreso inferior hasta `Completado`.
-6. Cambie a **Escena 3D**, seleccione un edificio y revise fuente/altura.
-7. Descargue el modelo GLB y `metadata.json`.
+3. Mantenga activo **Relieve DEM** para incorporar las elevaciones reales.
+4. En **Modelo 3D**, ajuste únicamente la conversión de pisos observados si es necesario.
+5. Pulse **Generar escenario**.
+6. Observe el progreso inferior hasta `Completado`.
+7. Cambie a **Escena 3D**, seleccione un edificio y revise fuente, altura y cota DEM.
+8. Descargue el modelo GLB y `metadata.json`.
 
 Si una fuente falla, el trabajo continúa con las restantes. Si ninguna devuelve datos, el sistema informa el fallo y no crea construcciones ficticias.
 
@@ -97,7 +99,7 @@ npm run validate:glb -- "D:\ruta\al\modelo.glb"
 
 Las pruebas sin Internet validan proyección UTM, dimensiones 20 × 10 m,
 normalización OSM, fusión, no fusión de edificios adyacentes, polígonos cóncavos,
-patios, multipolígonos, volumen, normales, texturas incrustadas, estructura GLB y
+patios, multipolígonos, volumen, normales, decodificación Terrarium, relieve, estructura GLB y
 contratos de API. `validate:glb` ejecuta además el validador oficial de Khronos.
 
 ## Estructura

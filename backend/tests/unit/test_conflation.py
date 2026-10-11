@@ -55,4 +55,9 @@ def test_adjacent_buildings_are_not_merged():
         6.0,
     )
     assert len(fused.buildings) == 2
+    assert all(
+        building.attributes["height_type"].value == "footprint_only"
+        for building in fused.buildings
+    )
+    assert all(building.attributes["height"].value == 0 for building in fused.buildings)
 

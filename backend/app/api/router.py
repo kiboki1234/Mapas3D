@@ -46,10 +46,16 @@ def capabilities(request: Request) -> dict[str, Any]:
     cache_stats = request.app.state.provider_cache_stats()
     return {
         "api_version": "1",
-        "generation": ["buildings-lod0", "roads", "glb", "metadata", "provenance"],
+        "generation": [
+            "buildings-lod0", "roads", "dem-terrain", "glb", "metadata", "provenance"
+        ],
         "coordinate_systems": ["WGS84", "local UTM"],
         "maximum_radius_m": settings.max_radius_m,
-        "terrain": {"implemented": False, "fallback": "flat"},
+        "terrain": {
+            "implemented": True,
+            "provider": "Mapzen Terrain Tiles / Terrarium",
+            "vertical_datum": "EGM96 para cobertura derivada de SRTM",
+        },
         "osm2world": {"implemented": False, "mode": "optional future adapter"},
         "cache": cache_stats,
     }

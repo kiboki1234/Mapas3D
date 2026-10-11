@@ -5,7 +5,7 @@ from typing import Any, Iterable
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.geometry.base import BaseGeometry
 
-from app.models.domain import Building, FusedDataset, Road
+from app.models.domain import Building, FusedDataset, Road, TerrainGrid
 from app.projection.service import LocalProjection
 
 
@@ -58,18 +58,34 @@ def road_to_scene(road: Road, projection: LocalProjection) -> dict[str, Any]:
         "id": road.id,
         "points": [[round(float(x), 3), round(float(-y), 3)] for x, y in geometry.coords],
         "width_m": road.width_m,
+        "width_source": road.width_source,
+        "width_estimated": road.width_estimated,
         "class": road.road_class,
         "name": road.name,
         "source": road.provider,
     }
 
 
-def build_scene(fused: FusedDataset, projection: LocalProjection) -> dict[str, Any]:
+def build_scene(
+    fused: FusedDataset,
+    projection: LocalProjection,
+    terrain: TerrainGrid | None = None,
+) -> dict[str, Any]:
+    terrain_payload: dict[str, Any] = {"mode": "flat", "elevation_m": 0.0}
+    if terrain is not None:
+        terrain_payload = {
+            "mode": "dem",
+            "source": terrain.source,
+            "reference_elevation_m": terrain.reference_elevation_m,
+            "longitudes": terrain.longitudes.round(8).tolist(),
+            "latitudes": terrain.latitudes.round(8).tolist(),
+            "elevations_m": terrain.elevations_m.round(3).tolist(),
+        }
     return {
         "schema_version": "1.0",
         "coordinate_system": projection.metadata(),
         "buildings": [building_to_scene(item, projection) for item in fused.buildings],
         "roads": [road_to_scene(item, projection) for item in fused.roads],
-        "terrain": {"mode": "flat", "elevation_m": 0.0},
+        "terrain": terrain_payload,
     }
 

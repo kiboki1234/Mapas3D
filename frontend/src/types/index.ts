@@ -18,7 +18,8 @@ export interface GenerationRequest {
   include_buildings: boolean;
   include_roads: boolean;
   include_terrain: boolean;
-  material_style?: "plain" | "procedural";
+  material_style?: "source";
+  height_mode?: "source" | "estimated";
   lod: "lod0" | "lod1";
   floor_height_m: number;
   unknown_height_m: number;
@@ -64,14 +65,25 @@ export interface QualityReport {
   conflicts: number;
   invalid_geometries: number;
   roads: number;
+  road_width: { observed: number; derived_from_class: number };
   height: {
     explicit: number;
     derived_from_floors: number;
     estimated_spatial: number;
     unknown_visual_default: number;
+    footprint_only: number;
     explicit_percent: number;
   };
-  terrain: { available: boolean; mode: string; coverage: number | null };
+  terrain: {
+    available: boolean;
+    mode: string;
+    coverage: number | null;
+    provider?: string | null;
+    elevation_min_m?: number | null;
+    elevation_max_m?: number | null;
+    reference_elevation_m?: number | null;
+    pixel_resolution_m?: number | null;
+  };
   vegetation: { available: boolean; mode: string };
   warnings: string[];
   definitions: Record<string, string>;
@@ -92,6 +104,12 @@ export interface SelectedFeature {
   height_m?: number;
   height_type?: string;
   road_class?: string;
+  width_m?: number;
+  width_source?: string;
+  width_estimated?: boolean;
+  feature_type?: string;
+  ground_elevation_m?: number | null;
+  vertical_datum?: string | null;
   original_ids?: Record<string, string>;
 }
 

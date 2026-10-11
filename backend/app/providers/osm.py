@@ -246,7 +246,8 @@ class OpenStreetMapProvider(GeospatialProvider):
                     invalid += 1
                     continue
                 road_class = tags.get("highway", "road")
-                width = _number(tags.get("width")) or ROAD_WIDTHS.get(road_class, 5.0)
+                observed_width = _number(tags.get("width"))
+                width = observed_width or ROAD_WIDTHS.get(road_class, 5.0)
                 roads.append(
                     Road(
                         id=f"osm-way-{element.get('id')}",
@@ -255,11 +256,18 @@ class OpenStreetMapProvider(GeospatialProvider):
                         road_class=road_class,
                         name=tags.get("name"),
                         width_m=max(1.0, min(width, 30.0)),
+                        width_source=self.id if observed_width else "road-class-default",
+                        width_estimated=observed_width is None,
                     )
                 )
         warnings = []
         if invalid:
             warnings.append(f"Se descartaron {invalid} geometrías OSM inválidas o incompletas.")
+        estimated_widths = sum(road.width_estimated for road in roads)
+        if estimated_widths:
+            warnings.append(
+                f"{estimated_widths} vías no tenían width; su ancho se derivó de highway."
+            )
         return ProviderResult(
             provider=self.id,
             buildings=buildings,

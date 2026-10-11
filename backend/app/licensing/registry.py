@@ -20,6 +20,14 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "url": "https://docs.overturemaps.org/attribution/",
         "commercial": True,
     },
+    "mapzen-terrain": {
+        "name": "Mapzen Terrain Tiles",
+        "dataset": "Terrarium elevation tiles (SRTM and other open DEM sources)",
+        "license": "Multiple open datasets",
+        "attribution": "Elevation data courtesy of USGS and other Mapzen Terrain sources",
+        "url": "https://github.com/tilezen/joerd/blob/master/docs/attribution.md",
+        "commercial": True,
+    },
 }
 
 
@@ -43,9 +51,10 @@ def validate_profile(providers: list[str], profile: str) -> list[str]:
     return warnings
 
 
-def attribution_text(providers: list[str]) -> str:
+def attribution_text(providers: list[str], include_terrain: bool = False) -> str:
     lines = ["City3D Engine — atribuciones de datos", ""]
-    for provider in dict.fromkeys(providers):
+    selected = [*providers, *(["mapzen-terrain"] if include_terrain else [])]
+    for provider in dict.fromkeys(selected):
         record = PROVIDERS[provider]
         lines.extend(
             [

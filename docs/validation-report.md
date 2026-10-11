@@ -40,6 +40,20 @@ Resultado registrado originalmente: 10 pruebas superadas.
 - El visor abrió el GLB generado, mostró el estilo Arquitectónico y no registró errores
   ni advertencias en la consola.
 
+## Validación del generador 0.3.3 con DEM real
+
+- Tesela Terrarium real descargada para Sangolquí, zoom 12.
+- Cuadrícula DEM: 33 × 33; resolución aproximada de píxel: 38,22 m.
+- Cotas observadas en la selección: 2.488,518–2.513,325 m; referencia central: 2.499,637 m.
+- Escenario real: 36 huellas de edificios, 106 vías y una malla DEM; 143 mallas GLB.
+- GLB final: 3.562 triángulos, 10.257 vértices de primitivas y 412.184 bytes.
+- Alturas disponibles: una derivada de pisos observados y 35 edificios conservados solo
+  como huella. No se generaron volúmenes de altura desconocida.
+- Anchos viales: 7 observados y 99 derivados de la clase `highway`; ambos grupos quedan
+  diferenciados en calidad, escena y `extras` del GLB.
+- El trabajo finalizó sin error y conservó fuente, zoom, resolución, datum y cotas en JSON/GLB.
+- El validador Khronos reportó cero errores y cero advertencias.
+
 ## Validación real de extremo a extremo
 
 - Región: campus ESPE, Sangolquí (`-0.314861, -78.443472`), radio de 250 m.

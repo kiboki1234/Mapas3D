@@ -14,10 +14,11 @@ from app.generation.glb import GENERATOR_VERSION, export_glb, validate_glb
 from app.generation.scene import build_scene
 from app.jobs.repository import JobRepository
 from app.licensing.registry import attribution_text, provider_license, validate_profile
-from app.models.domain import ProviderResult
+from app.models.domain import ProviderResult, TerrainGrid
 from app.models.schemas import GenerationJob, GenerationRequest, JobEvent, JobStatus
 from app.projection.service import LocalProjection, bounding_box_from_center
 from app.providers.base import GeospatialProvider
+from app.providers.terrain import TerrainProvider
 
 
 class GenerationService:
@@ -26,10 +27,12 @@ class GenerationService:
         settings: Settings,
         repository: JobRepository,
         providers: dict[str, GeospatialProvider],
+        terrain_provider: TerrainProvider | None = None,
     ):
         self.settings = settings
         self.repository = repository
         self.providers = providers
+        self.terrain_provider = terrain_provider
 
     @staticmethod
     def request_hash(request: GenerationRequest) -> str:
@@ -157,7 +160,11 @@ class GenerationService:
                 event=JobEvent(message="Resolviendo duplicados y procedencia por atributo."),
             )
             fused = fuse_results(
-                results, projection, request.floor_height_m, request.unknown_height_m
+                results,
+                projection,
+                request.floor_height_m,
+                request.unknown_height_m,
+                request.height_mode,
             )
             fused.warnings.extend(license_warnings)
             fused.warnings.extend(provider_failures)
@@ -170,8 +177,31 @@ class GenerationService:
                     "El resultado vacío no se guardará en caché; intente nuevamente o use "
                     f"OpenStreetMap.{failure_detail}"
                 )
-            quality = analyze_quality(results, fused)
-            scene = build_scene(fused, projection)
+            terrain: TerrainGrid | None = None
+            if request.include_terrain:
+                if self.terrain_provider is None:
+                    raise RuntimeError("El relieve fue solicitado, pero no hay proveedor DEM configurado.")
+                self.repository.update(
+                    job_id,
+                    status=JobStatus.processing_terrain,
+                    progress=65,
+                    event=JobEvent(message="Descargando y muestreando elevaciones DEM reales."),
+                )
+                terrain = self.terrain_provider.fetch(bbox)
+                fused.sources.append(terrain.source)
+                fused.warnings.extend(terrain.warnings)
+                self.repository.update(
+                    job_id,
+                    event=JobEvent(
+                        message=(
+                            "Relieve DEM preparado: "
+                            f"{terrain.source['elevation_min_m']}–"
+                            f"{terrain.source['elevation_max_m']} m sobre el datum vertical."
+                        )
+                    ),
+                )
+            quality = analyze_quality(results, fused, terrain)
+            scene = build_scene(fused, projection, terrain)
             self._check_cancelled(job_id)
             self.repository.update(
                 job_id,
@@ -185,9 +215,11 @@ class GenerationService:
                 "generator_version": GENERATOR_VERSION,
                 "appearance": {
                     "style": request.material_style,
-                    "observed": False,
+                    "observed_geometry": True,
+                    "photorealistic": False,
                     "description": (
-                        "Materiales ilustrativos; no son fotografías ni fachadas reales."
+                        "Los colores codifican procedencia/calidad. No se presentan texturas "
+                        "sintéticas como fachadas observadas."
                     ),
                 },
                 "generation_id": job_id,
@@ -196,15 +228,25 @@ class GenerationService:
                 "bounding_box": bbox.model_dump(),
                 "coordinate_system": projection.metadata(),
                 "sources": fused.sources,
-                "licenses": [provider_license(item) for item in request.providers],
+                "licenses": [
+                    provider_license(item)
+                    for item in [
+                        *request.providers,
+                        *(["mapzen-terrain"] if terrain is not None else []),
+                    ]
+                ],
                 "quality": quality,
                 "fusion_decisions": fused.fusion_decisions,
                 "object_mapping": {
                     building.id: building.original_ids for building in fused.buildings
                 },
                 "limitations": [
-                    "El terreno del MVP es plano; no representa elevación real.",
-                    "Las alturas desconocidas usan un valor visual claramente marcado.",
+                    *([] if terrain is not None else [
+                        "El relieve no fue solicitado; la base de la escena es plana."
+                    ]),
+                    "Los edificios sin altura ni pisos observados se muestran solo como huella.",
+                    "Las alturas derivadas de pisos usan la conversión indicada por el usuario.",
+                    "El DEM representa el terreno, no la superficie de techos ni vegetación.",
                     "La cobertura observada no equivale a completitud respecto al mundo real.",
                 ],
             }
@@ -221,9 +263,9 @@ class GenerationService:
             self._write_json(paths["quality"], quality)
             self._write_json(paths["sources"], fused.sources)
             paths["attributions"].write_text(
-                attribution_text(request.providers), encoding="utf-8"
+                attribution_text(request.providers, terrain is not None), encoding="utf-8"
             )
-            export_glb(fused, projection, paths["model"], metadata)
+            export_glb(fused, projection, paths["model"], metadata, terrain)
             self.repository.update(
                 job_id,
                 status=JobStatus.validating,

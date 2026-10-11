@@ -95,7 +95,10 @@ def _merge_attributes(target: Building, incoming: Building) -> list[dict[str, ob
 
 
 def _apply_height_policy(
-    buildings: Iterable[Building], floor_height_m: float, unknown_height_m: float
+    buildings: Iterable[Building],
+    floor_height_m: float,
+    unknown_height_m: float,
+    height_mode: str,
 ) -> None:
     for building in buildings:
         explicit = building.attributes.get("height")
@@ -114,10 +117,19 @@ def _apply_height_policy(
             )
             building.attributes["height_type"] = AttributeValue("derived", floors.source)
             continue
-        building.attributes["height"] = AttributeValue(
-            unknown_height_m, "visual-default", confidence=0.0, estimated=True
-        )
-        building.attributes["height_type"] = AttributeValue("unknown", "visual-default")
+        if height_mode == "estimated":
+            building.attributes["height"] = AttributeValue(
+                unknown_height_m, "visual-default", confidence=0.0, estimated=True
+            )
+            building.attributes["height_type"] = AttributeValue("unknown", "visual-default")
+        else:
+            # No se inventa volumen: la huella observada se exporta como superficie.
+            building.attributes["height"] = AttributeValue(
+                0.0, "source-footprint", confidence=1.0, estimated=False
+            )
+            building.attributes["height_type"] = AttributeValue(
+                "footprint_only", "source-footprint"
+            )
 
 
 def fuse_results(
@@ -125,6 +137,7 @@ def fuse_results(
     projection: LocalProjection,
     floor_height_m: float,
     unknown_height_m: float,
+    height_mode: str = "source",
 ) -> FusedDataset:
     priority = {"overture": 0, "osm": 1}
     candidates = sorted(
@@ -165,7 +178,7 @@ def fuse_results(
                 "attribute_decisions": attribute_decisions,
             }
         )
-    _apply_height_policy(fused, floor_height_m, unknown_height_m)
+    _apply_height_policy(fused, floor_height_m, unknown_height_m, height_mode)
     roads = [road for result in results for road in result.roads]
     return FusedDataset(
         buildings=fused,

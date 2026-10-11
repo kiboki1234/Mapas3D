@@ -16,6 +16,8 @@ def test_osm_fixture_is_normalized(monkeypatch, tmp_path: Path):
     assert len(result.roads) == 1
     assert result.buildings[0].attributes["num_floors"].value == 3
     assert result.roads[0].width_m == 6.0
+    assert result.roads[0].width_estimated is True
+    assert result.roads[0].width_source == "road-class-default"
 
 
 def test_map_api_nodes_are_hydrated_into_way_geometry():

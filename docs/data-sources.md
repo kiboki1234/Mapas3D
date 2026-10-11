@@ -21,9 +21,19 @@
 - Capacidades vigentes observadas: aplicación de escritorio/CLI/biblioteca; exporta glTF, GLB, OBJ y POV; admite PBR y LOD.
 - Regla: al instalarlo se debe registrar la versión y verificar su `--help`; no se codifica una CLI supuesta.
 
+## Relieve DEM — Mapzen Terrain Tiles / Terrarium
+
+- Rol: elevación del terreno para la malla, base de edificios y superficie de vías.
+- Acceso: teselas PNG Terrarium públicas en `elevation-tiles-prod`, zoom 12 por defecto.
+- Codificación: `R × 256 + G + B / 256 − 32768`, resultado en metros.
+- Cobertura: global compuesta por SRTM y otras fuentes abiertas; en Ecuador la cobertura global procede de SRTM.
+- Resolución observada en Sangolquí: aproximadamente 38,22 m por píxel en zoom 12.
+- Trazabilidad: se registra URL, zoom, teselas, cuadrícula, datum, cotas mínima/máxima, caché y fuentes de imagen cuando el servidor las informa.
+- Limitación: no es un DSM de edificios ni reemplaza datos LiDAR/catastrales de mayor resolución.
+
 ## Fuentes pendientes
 
-- DEM SRTM/Copernicus/local: fase de relieve.
+- DEM local GeoTIFF/Copernicus de mayor resolución: adaptadores futuros.
 - ESA WorldCover: fase de ambientación, nunca como inventario de árboles.
 - Microsoft/Google Open Buildings directos: solo si una prueba demuestra aporte adicional respecto al release Overture activo.
 - GlobalBuildingAtlas: experimental; los subconjuntos CC BY-NC no se activarán en perfil comercial.

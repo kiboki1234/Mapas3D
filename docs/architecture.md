@@ -10,7 +10,7 @@ React/Leaflet/Three.js
         ▼
 FastAPI ── Jobs SQLite
   │
-  ├── Provider Registry ── Overture / OSM
+  ├── Provider Registry ── Overture / OSM / DEM Terrarium
   ├── Projection ── WGS84 → UTM local
   ├── Fusion ── IDs + IoU + área + centroides
   ├── Quality ── métricas observadas
@@ -49,22 +49,31 @@ Overture es la fuente consolidada inicial. OSM puede enriquecer altura, pisos y 
 
 SQLite basta para persistir estados en una máquina. `BackgroundTasks` ejecuta el trabajo fuera de la respuesta HTTP. Antes de producción multiusuario se debe migrar el procesamiento a un worker duradero con límites de CPU/memoria.
 
-### ADR-005 — GLB autocontenido y materiales procedurales
+### ADR-005 — GLB autocontenido y materiales semánticos
 
-El generador 0.2 utiliza triangulación de Delaunay restringida para conservar contornos
-cóncavos y patios. Emite normales, UV métricas y, cuando se solicita, texturas PNG
-procedurales dentro del mismo GLB. Fachadas, cubiertas y asfalto comparten materiales para
-evitar una textura por objeto. La apariencia procedural queda marcada como no observada en
-los metadatos y no se presenta como reconstrucción fotográfica.
+El generador utiliza triangulación de Delaunay restringida para conservar contornos
+cóncavos y patios. Emite normales y materiales cuyos colores codifican procedencia o tipo
+de dato. No incorpora fachadas sintéticas: una apariencia fotográfica futura tendrá que
+proceder de una fuente autorizada y quedar identificada explícitamente.
 
 La caché de generaciones incluye la versión del generador para impedir que un cambio de
 geometría reutilice modelos antiguos con el mismo conjunto de parámetros.
+
+### ADR-006 — DEM Terrarium desacoplado
+
+El relieve usa un adaptador separado para teselas Terrarium de Mapzen/Tilezen alojadas en
+el conjunto público `elevation-tiles-prod`. La elevación se decodifica en metros, se cachea
+la tesela original y se muestrea en una cuadrícula regular. El GLB resta la cota del centro
+solo para mantener precisión numérica; `metadata.json` conserva la cota absoluta, datum,
+resolución, teselas y rango observado. Vías y huellas se adaptan a la malla; edificios con
+altura se apoyan sobre la elevación de su ubicación.
 
 ## Riesgos conocidos
 
 - La fusión inicial no modela todavía edificios con partes de forma jerárquica.
 - El algoritmo O(n²) está limitado por el radio máximo; regiones extensas requieren índice espacial y sectores.
-- El generador no crea tejados inclinados ni DEM.
+- El generador no crea tejados inclinados; requiere atributos reales para hacerlo.
+- El DEM global tiene resolución efectiva limitada por su fuente y no sustituye un levantamiento topográfico.
 - Overpass público no ofrece SLA y debe reemplazarse por extractos para uso sostenido.
 - Los tejados siguen siendo planos; las formas inclinadas requieren datos y una fase LOD1.
 

@@ -14,7 +14,7 @@ import {
   MousePointer2,
   Play,
   Search,
-  Sparkles,
+  Mountain,
   X,
 } from "lucide-react";
 import { SourceBadge } from "./components/SourceBadge";
@@ -79,9 +79,8 @@ export default function App() {
   const [pollError, setPollError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const submission = useRef(false);
-  const [materialStyle, setMaterialStyle] = useState<"plain" | "procedural">("plain");
+  const [includeTerrain, setIncludeTerrain] = useState(true);
   const [floorHeight, setFloorHeight] = useState(3);
-  const [unknownHeight, setUnknownHeight] = useState(6);
 
   useEffect(() => {
     api.providers()
@@ -121,7 +120,6 @@ export default function App() {
       .then((report) => {
         if (cancelled) return;
         setQuality(report);
-        if (job.request.material_style === "procedural") setViewerStyle("architectural");
         setActiveView("3d");
       })
       .catch((reason: Error) => {
@@ -130,7 +128,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [job?.id, job?.status, setActiveView, setQuality, setViewerStyle]);
+  }, [job?.id, job?.status, setActiveView, setQuality]);
 
   const modelUrl = job?.status === "completed" ? api.artifactUrl(job.id, "model") : null;
   const busy = submitting || ACTIVE_STATUSES.has(job?.status ?? "");
@@ -165,11 +163,12 @@ export default function App() {
       providers: selectedProviders,
       include_buildings: true,
       include_roads: includeRoads,
-      include_terrain: false,
-      material_style: materialStyle,
+      include_terrain: includeTerrain,
+      material_style: "source",
+      height_mode: "source",
       lod: "lod0",
       floor_height_m: floorHeight,
-      unknown_height_m: unknownHeight,
+      unknown_height_m: 6,
       license_profile: "commercial",
     };
     setError(null);
@@ -213,7 +212,7 @@ export default function App() {
     return [
       ["Explícita", quality.height.explicit, "explicit"],
       ["Derivada", quality.height.derived_from_floors, "derived"],
-      ["Desconocida", quality.height.unknown_visual_default, "unknown"],
+      ["Solo huella", quality.height.footprint_only ?? 0, "footprint_only"],
     ] as const;
   }, [quality]);
 
@@ -286,13 +285,13 @@ export default function App() {
             <span><Database size={15} /> Incluir carreteras</span>
             <input type="checkbox" checked={includeRoads} onChange={(event) => setIncludeRoads(event.target.checked)} />
           </label>
-          <label className="toggle-row disabled" title="Se implementará en la fase de relieve">
-            <span><Sparkles size={15} /> Relieve DEM <small>próximamente</small></span>
-            <input type="checkbox" disabled />
+          <label className="toggle-row">
+            <span><Mountain size={15} /> Relieve DEM <small>elevación real</small></span>
+            <input type="checkbox" checked={includeTerrain} disabled={busy}
+              onChange={(event) => setIncludeTerrain(event.target.checked)} />
           </label>
-          <GenerationOptions materialStyle={materialStyle} floorHeight={floorHeight}
-            unknownHeight={unknownHeight} disabled={busy} onMaterialStyle={setMaterialStyle}
-            onFloorHeight={setFloorHeight} onUnknownHeight={setUnknownHeight} />
+          <GenerationOptions floorHeight={floorHeight} disabled={busy}
+            onFloorHeight={setFloorHeight} />
           <button className="generate-button" onClick={() => void generate()} disabled={!canGenerate || ACTIVE_STATUSES.has(job?.status ?? "")}>
             {job && ACTIVE_STATUSES.has(job.status) ? <LoaderCircle className="spin" size={18} /> : <Play size={18} fill="currentColor" />}
             {submitting ? "Iniciando…" : job && ACTIVE_STATUSES.has(job.status) ? statusLabels[job.status] : "Generar escenario"}
@@ -356,12 +355,17 @@ export default function App() {
           </section>
           {quality && <section className="inspector-section quality-notes">
             <div className="section-title"><span>Fuentes y límites del modelo</span></div>
-            <p>Escala métrica · Terreno plano · Cubiertas planas</p>
+            <p>Escala métrica · {quality.terrain.available ? "Relieve DEM" : "Terreno plano"} · Cubiertas planas</p>
+            {quality.terrain.available && <p>
+              Elevación {quality.terrain.elevation_min_m?.toFixed(1)}–{quality.terrain.elevation_max_m?.toFixed(1)} m ·
+              resolución de píxel ≈ {quality.terrain.pixel_resolution_m?.toFixed(1)} m.
+            </p>}
             {Object.entries(quality.buildings_by_source_before_fusion).map(([source, count]) => (
               <div className="legend-row" key={source}><span /><span>{source === "osm" ? "OpenStreetMap" : "Overture"}</span><b>{count}</b></div>
             ))}
             <p>Recuentos antes de fusionar duplicados.</p>
-            {job?.request.material_style === "procedural" && <p>Fachadas decorativas incluidas en el GLB. Use Arquitectónico para verlas.</p>}
+            <p>Los colores clasifican la fuente de altura; no son texturas de fachadas.</p>
+            <p>Anchos viales: {quality.road_width?.observed ?? 0} observados · {quality.road_width?.derived_from_class ?? 0} derivados de la clase OSM.</p>
             <details><summary>Advertencias ({quality.warnings.length})</summary>
               {quality.warnings.map((warning, index) => <p key={index}>{warning}</p>)}
             </details>
@@ -373,7 +377,9 @@ export default function App() {
                 <div><dt>ID</dt><dd>{selectedFeature.feature_id}</dd></div>
                 <div><dt>Fuente</dt><dd>{selectedFeature.geometry_source ?? selectedFeature.source}</dd></div>
                 {selectedFeature.height_m != null && <div><dt>Altura</dt><dd>{selectedFeature.height_m.toFixed(1)} m · {selectedFeature.height_type}</dd></div>}
+                {selectedFeature.ground_elevation_m != null && <div><dt>Cota DEM</dt><dd>{selectedFeature.ground_elevation_m.toFixed(1)} m</dd></div>}
                 {selectedFeature.road_class && <div><dt>Clase</dt><dd>{selectedFeature.road_class}</dd></div>}
+                {selectedFeature.width_m != null && <div><dt>Ancho vial</dt><dd>{selectedFeature.width_m.toFixed(1)} m · {selectedFeature.width_estimated ? "derivado" : "observado"}</dd></div>}
               </dl>
             ) : <p className="empty-copy">Seleccione una malla en la vista 3D para inspeccionar su procedencia.</p>}
           </section>

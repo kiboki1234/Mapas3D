@@ -7,7 +7,7 @@
 - Origen local: centro de la selección, restado a eastings/northings.
 - GLB/Three.js: X este, Y arriba, Z sur, metros.
 
-La inversión del eje norte a Z sur mantiene un sistema derecho con Y vertical. `metadata.json` registra EPSG, origen geográfico, origen proyectado, unidades y ejes para reconstruir coordenadas.
+La inversión del eje norte a Z sur mantiene un sistema derecho con Y vertical. `metadata.json` registra EPSG, origen geográfico, origen proyectado, unidades y ejes para reconstruir coordenadas. Con DEM, Y representa la diferencia respecto a la elevación del centro; la cota absoluta de referencia se conserva en metadatos.
 
 ## Precisión
 
@@ -17,7 +17,8 @@ La prueba determinista crea un polígono de 20 × 10 m en la proyección y exige
 
 - Una selección no puede cruzar el antimeridiano en el MVP.
 - Las áreas cercanas al límite de una zona UTM requieren una proyección local ENU o un CRS regional; el radio máximo reduce este riesgo, pero no lo elimina.
-- Todavía no se maneja datum vertical porque el terreno es plano.
+- La cobertura SRTM usa alturas ortométricas referidas al geoide EGM96. Otras fuentes compuestas pueden requerir revisar el datum declarado en sus metadatos.
+- La resolución DEM global no equivale a precisión topográfica o catastral.
 
 ## Blender y Godot 4
 

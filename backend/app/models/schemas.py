@@ -48,8 +48,9 @@ class GenerationRequest(RegionPreviewRequest):
     )
     include_buildings: bool = True
     include_roads: bool = True
-    include_terrain: bool = False
-    material_style: Literal["plain", "procedural"] = "plain"
+    include_terrain: bool = True
+    material_style: Literal["source"] = "source"
+    height_mode: Literal["source", "estimated"] = "source"
     lod: Literal["lod0", "lod1"] = "lod0"
     floor_height_m: float = Field(default=3.0, ge=2.0, le=6.0)
     unknown_height_m: float = Field(default=6.0, ge=2.0, le=30.0)
@@ -62,6 +63,12 @@ class GenerationRequest(RegionPreviewRequest):
         if not result:
             raise ValueError("Debe seleccionar al menos un proveedor")
         return result
+
+    @field_validator("material_style", mode="before")
+    @classmethod
+    def normalize_legacy_material_style(cls, value: str) -> str:
+        # Trabajos 0.2 persistidos usaban estilos ilustrativos ya retirados.
+        return "source" if value in {"plain", "procedural", "source"} else value
 
 
 class JobEvent(BaseModel):

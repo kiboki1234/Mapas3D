@@ -35,17 +35,35 @@ class LocalProjection:
     origin_easting: float
     origin_northing: float
     transformer: Transformer
+    inverse_transformer: Transformer
 
     @classmethod
     def at(cls, latitude: float, longitude: float) -> "LocalProjection":
         epsg = utm_epsg_for(latitude, longitude)
         transformer = Transformer.from_crs(WGS84, CRS.from_epsg(epsg), always_xy=True)
+        inverse_transformer = Transformer.from_crs(
+            CRS.from_epsg(epsg), WGS84, always_xy=True
+        )
         easting, northing = transformer.transform(longitude, latitude)
-        return cls(latitude, longitude, epsg, easting, northing, transformer)
+        return cls(
+            latitude,
+            longitude,
+            epsg,
+            easting,
+            northing,
+            transformer,
+            inverse_transformer,
+        )
 
     def project_geometry(self, geometry: BaseGeometry) -> BaseGeometry:
         projected = transform(geometry, self.transformer.transform, interleaved=False)
         return translate(projected, xoff=-self.origin_easting, yoff=-self.origin_northing)
+
+    def unproject_point(self, x: float, y: float) -> tuple[float, float]:
+        longitude, latitude = self.inverse_transformer.transform(
+            x + self.origin_easting, y + self.origin_northing
+        )
+        return float(longitude), float(latitude)
 
     def metadata(self) -> dict[str, object]:
         return {

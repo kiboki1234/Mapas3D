@@ -11,6 +11,7 @@ from app.core.config import get_settings
 from app.jobs.repository import JobRepository, recover_interrupted_jobs
 from app.jobs.service import GenerationService
 from app.providers.registry import build_provider_registry
+from app.providers.terrain import TerrariumTerrainProvider
 
 
 @asynccontextmanager
@@ -19,9 +20,12 @@ async def lifespan(app: FastAPI):
     repository = JobRepository(settings.jobs_database)
     recover_interrupted_jobs(repository)
     providers = build_provider_registry(settings)
+    terrain_provider = TerrariumTerrainProvider(settings, FileCache(settings.dem_cache_dir))
     app.state.settings = settings
     app.state.providers = providers
-    app.state.generation_service = GenerationService(settings, repository, providers)
+    app.state.generation_service = GenerationService(
+        settings, repository, providers, terrain_provider
+    )
     provider_cache = FileCache(settings.cache_dir / "providers")
     app.state.provider_cache_stats = provider_cache.stats
     yield

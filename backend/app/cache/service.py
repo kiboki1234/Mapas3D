@@ -16,9 +16,9 @@ class FileCache:
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode()
         return f"{namespace}-{hashlib.sha256(encoded).hexdigest()}"
 
-    def path_for(self, key: str) -> Path:
+    def path_for(self, key: str, suffix: str = ".json") -> Path:
         safe = "".join(character for character in key if character.isalnum() or character in "-_")
-        return self.root / f"{safe}.json"
+        return self.root / f"{safe}{suffix}"
 
     def read_json(self, key: str) -> Any | None:
         path = self.path_for(key)
@@ -36,7 +36,21 @@ class FileCache:
         temporary.replace(path)
         return path
 
+    def read_bytes(self, key: str, suffix: str) -> bytes | None:
+        path = self.path_for(key, suffix)
+        try:
+            return path.read_bytes() if path.exists() else None
+        except OSError:
+            return None
+
+    def write_bytes(self, key: str, value: bytes, suffix: str) -> Path:
+        path = self.path_for(key, suffix)
+        temporary = path.with_suffix(path.suffix + ".tmp")
+        temporary.write_bytes(value)
+        temporary.replace(path)
+        return path
+
     def stats(self) -> dict[str, int]:
-        files = list(self.root.glob("*.json"))
+        files = [item for item in self.root.iterdir() if item.is_file()]
         return {"entries": len(files), "bytes": sum(item.stat().st_size for item in files)}
 

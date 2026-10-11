@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     user_agent: str = "City3D-Engine/0.1 (local open-source GIS prototype)"
     nominatim_endpoint: str = "https://nominatim.openstreetmap.org/search"
     osm_map_endpoint: str = "https://api.openstreetmap.org/api/0.6/map.json"
+    terrain_tile_endpoint: str = (
+        "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
+    )
+    terrain_zoom: int = Field(default=12, ge=0, le=15)
 
     @property
     def origins(self) -> list[str]:
@@ -51,12 +55,17 @@ class Settings(BaseSettings):
         return self.data_dir / "generated"
 
     @property
+    def dem_cache_dir(self) -> Path:
+        return self.data_dir / "dem"
+
+    @property
     def jobs_database(self) -> Path:
         return self.data_dir / "city3d.sqlite3"
 
     def ensure_directories(self) -> None:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.generated_dir.mkdir(parents=True, exist_ok=True)
+        self.dem_cache_dir.mkdir(parents=True, exist_ok=True)
 
 
 @lru_cache

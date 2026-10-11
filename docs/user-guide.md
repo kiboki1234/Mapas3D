@@ -6,46 +6,36 @@
 2. Use el círculo o active **Seleccionar rectángulo** y arrastre en el mapa.
 3. Elija un radio pequeño; 250 m es el valor recomendado inicial.
 4. Active las fuentes disponibles y las carreteras si las necesita.
-5. En **Modelo 3D**, elija el acabado y ajuste la altura por piso o la altura visual
-   usada únicamente cuando la fuente no contiene ese dato.
+5. Active **Relieve DEM** para descargar elevación real y ajuste, si lo necesita, la
+   conversión aplicada únicamente a edificios con número de pisos observado.
 6. Pulse **Generar escenario** y siga el estado inferior.
 7. Cuando termine, abra **Escena 3D**.
 
-Puede orbitar con el ratón, usar los botones de vista y seleccionar una malla. Los colores indican altura explícita, derivada o desconocida; cambiar el estilo no descarga datos otra vez.
+Puede orbitar con el ratón, usar los botones de vista y seleccionar una malla. Los colores indican altura explícita, derivada o solo huella; cambiar el estilo no descarga datos otra vez.
 
-## Acabados del modelo
+## Fidelidad del modelo
 
-- **Colores de calidad** conserva la visualización temática por procedencia de altura.
-- **Fachadas y asfalto** genera UV, normales y tres texturas procedurales incrustadas
-  en el propio GLB: fachada, cubierta plana y asfalto. Active el estilo
-  **Arquitectónico** para verlas en el visor.
+- Los contornos de edificios y vías proceden de las fuentes seleccionadas.
+- El ancho vial conserva `width` cuando existe; de lo contrario se deriva de la clase `highway` y queda marcado como estimado.
+- Los colores son una leyenda de calidad; no simulan materiales observados.
+- Una altura explícita se conserva. Una altura derivada usa pisos observados y la conversión indicada.
+- Sin altura ni pisos, se exporta únicamente la huella sobre el terreno.
+- El DEM se decodifica en metros y conserva cota absoluta, datum, resolución y proveedor en metadatos.
 
-Estas texturas son ilustrativas y repetibles; no proceden de fotografías ni representan
-la fachada real de cada edificio. Los patios de los polígonos se conservan abiertos y las
-normales se exportan para que la iluminación funcione de forma coherente en otros motores.
-
-## Conducir por la escena
-
-1. Genere una escena que incluya carreteras y abra **Escena 3D**.
-2. Pulse el botón del automóvil para activar **Modo vehículo**.
-3. Use `WASD` o las flechas para acelerar, retroceder y girar.
-4. Mantenga `Espacio` para frenar.
-5. Use el botón de cámara para alternar entre vista exterior y vista de capó.
-6. Use reiniciar para volver a una vía o pulse nuevamente el automóvil para salir.
-
-El vehículo aparece sobre la vía más extensa detectada y permanece dentro de los límites del escenario. Este modo usa conducción arcade sobre un plano; todavía no simula colisiones, tráfico ni pendientes del terreno.
+Los patios de los polígonos se conservan abiertos y las normales se exportan para que la
+iluminación funcione de forma coherente en otros motores.
 
 ## Exportar
 
-- GLB: edificios y carreteras en metros.
+- GLB: terreno, edificios y carreteras en metros.
 - Metadatos JSON: origen, CRS, fuentes, calidad, decisiones de fusión y mapeo de objetos.
 - Atribuciones: créditos y enlaces de licencia.
 
 ## Mensajes importantes
 
-- “Altura desconocida” significa que el volumen usa 6 m únicamente para ser visible.
+- “Solo huella” significa que existe un contorno observado, pero no una altura verificable.
 - “Cobertura observada” cuenta lo devuelto por proveedores; no afirma cuántos edificios existen realmente.
-- “Terreno plano” significa que todavía no se incorporó un DEM.
+- “Terreno plano” aparece únicamente si el usuario desactiva el DEM.
 - “Cubiertas planas” significa que todavía no se generaron tejados inclinados.
 - Si Overture falla, OSM puede completar la generación y el fallo queda registrado.
 

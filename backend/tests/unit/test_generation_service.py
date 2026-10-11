@@ -55,6 +55,7 @@ def _request() -> GenerationRequest:
         longitude=-78.443472,
         radius_m=250,
         providers=["osm"],
+        include_terrain=False,
     )
 
 

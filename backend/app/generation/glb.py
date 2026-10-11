@@ -4,7 +4,7 @@ import json
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 import numpy as np
 from shapely import constrained_delaunay_triangles
@@ -12,12 +12,11 @@ from shapely.geometry import LineString, MultiPolygon, Polygon
 from shapely.geometry.base import BaseGeometry
 from shapely.geometry.polygon import orient
 
-from app.generation.materials import procedural_textures
 from app.generation.validation import validate_glb as validate_glb
-from app.models.domain import Building, FusedDataset
+from app.models.domain import Building, FusedDataset, TerrainGrid
 from app.projection.service import LocalProjection
 
-GENERATOR_VERSION = "City3D Engine 0.2"
+GENERATOR_VERSION = "City3D Engine 0.3.3"
 
 
 def _polygons(geometry: BaseGeometry) -> Iterable[Polygon]:
@@ -33,7 +32,9 @@ def _triangles_inside(polygon: Polygon) -> list[Polygon]:
             for triangle in constrained_delaunay_triangles(polygon).geoms]
 
 
-def _mesh_for_extrusion(geometry: BaseGeometry, height: float) -> tuple[np.ndarray, np.ndarray]:
+def _mesh_for_extrusion(
+    geometry: BaseGeometry, height: float, base_elevation: float = 0.0
+) -> tuple[np.ndarray, np.ndarray]:
     vertices: list[tuple[float, float, float]] = []
     indices: list[int] = []
 
@@ -47,8 +48,8 @@ def _mesh_for_extrusion(geometry: BaseGeometry, height: float) -> tuple[np.ndarr
         polygon = orient(polygon, sign=1.0)
         for triangle in _triangles_inside(polygon):
             coords = list(triangle.exterior.coords)[:3]
-            add_triangle([(x, height, -y) for x, y in coords])
-            add_triangle([(x, 0.0, -y) for x, y in coords], reverse=True)
+            add_triangle([(x, base_elevation + height, -y) for x, y in coords])
+            add_triangle([(x, base_elevation, -y) for x, y in coords], reverse=True)
         rings = [polygon.exterior, *polygon.interiors]
         for ring in rings:
             coords = list(ring.coords)
@@ -56,10 +57,10 @@ def _mesh_for_extrusion(geometry: BaseGeometry, height: float) -> tuple[np.ndarr
                 start = len(vertices)
                 vertices.extend(
                     [
-                        (first[0], 0.0, -first[1]),
-                        (second[0], 0.0, -second[1]),
-                        (second[0], height, -second[1]),
-                        (first[0], height, -first[1]),
+                        (first[0], base_elevation, -first[1]),
+                        (second[0], base_elevation, -second[1]),
+                        (second[0], base_elevation + height, -second[1]),
+                        (first[0], base_elevation + height, -first[1]),
                     ]
                 )
                 indices.extend([start, start + 1, start + 2, start, start + 2, start + 3])
@@ -67,7 +68,9 @@ def _mesh_for_extrusion(geometry: BaseGeometry, height: float) -> tuple[np.ndarr
 
 
 def _mesh_for_surface(
-    geometry: BaseGeometry, elevation: float = 0.02
+    geometry: BaseGeometry,
+    elevation: float = 0.02,
+    elevation_sampler: Callable[[float, float], float] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     vertices: list[tuple[float, float, float]] = []
     indices: list[int] = []
@@ -75,14 +78,37 @@ def _mesh_for_surface(
         for triangle in _triangles_inside(polygon):
             start = len(vertices)
             coords = list(triangle.exterior.coords)[:3]
-            vertices.extend([(x, elevation, -y) for x, y in coords])
+            vertices.extend([
+                (x, elevation + (elevation_sampler(x, y) if elevation_sampler else 0.0), -y)
+                for x, y in coords
+            ])
             indices.extend([start, start + 1, start + 2])
     return np.asarray(vertices, dtype="<f4"), np.asarray(indices, dtype="<u4")
 
 
+def _mesh_for_terrain(
+    terrain: TerrainGrid, projection: LocalProjection
+) -> tuple[np.ndarray, np.ndarray]:
+    rows, columns = terrain.elevations_m.shape
+    vertices = np.empty((rows * columns, 3), dtype="<f4")
+    longitude_grid, latitude_grid = np.meshgrid(terrain.longitudes, terrain.latitudes)
+    eastings, northings = projection.transformer.transform(longitude_grid, latitude_grid)
+    vertices[:, 0] = (eastings - projection.origin_easting).ravel()
+    vertices[:, 1] = (terrain.elevations_m - terrain.reference_elevation_m).ravel()
+    vertices[:, 2] = -(northings - projection.origin_northing).ravel()
+    indices: list[int] = []
+    for row in range(rows - 1):
+        for column in range(columns - 1):
+            first = row * columns + column
+            east = first + 1
+            north = first + columns
+            north_east = north + 1
+            indices.extend([first, east, north, east, north_east, north])
+    return vertices, np.asarray(indices, dtype="<u4")
+
+
 @dataclass
 class GlbBuilder:
-    textured: bool = False
     binary: bytearray = field(default_factory=bytearray)
     buffer_views: list[dict[str, Any]] = field(default_factory=list)
     accessors: list[dict[str, Any]] = field(default_factory=list)
@@ -132,22 +158,12 @@ class GlbBuilder:
         normals = crosses / lengths[:, None]
         flat = triangles.reshape(-1, 3)
         vertex_normals = np.repeat(normals, 3, axis=0)
-        # UV en metros: fachadas con proyección horizontal sobre su propia pared.
-        horizontal = np.abs(vertex_normals[:, 1]) > 0.5
-        u = flat[:, 0] * -vertex_normals[:, 2] + flat[:, 2] * vertex_normals[:, 0]
-        uv = np.column_stack((np.where(horizontal, flat[:, 0], u),
-                              np.where(horizontal, flat[:, 2], -flat[:, 1]))) / 3.0
-        packed = np.column_stack((flat, vertex_normals, uv)).astype("<f4")
+        packed = np.column_stack((flat, vertex_normals)).astype("<f4")
         unique, inverse = np.unique(packed, axis=0, return_inverse=True)
         attributes = {"POSITION": self._attribute(unique[:, :3], "VEC3"),
                       "NORMAL": self._attribute(unique[:, 3:6], "VEC3")}
-        if self.textured:
-            attributes["TEXCOORD_0"] = self._attribute(unique[:, 6:8], "VEC2")
         triangle_indices = inverse.reshape(-1, 3)
-        roof_mask = np.abs(normals[:, 1]) > 0.5
         groups = [(material, triangle_indices)]
-        if self.textured and material != 3:
-            groups = [(material, triangle_indices[~roof_mask]), (4, triangle_indices[roof_mask])]
         primitives = []
         for material_id, group_indices in groups:
             if not len(group_indices):
@@ -189,7 +205,7 @@ class GlbBuilder:
                 "doubleSided": True,
             },
             {
-                "name": "Altura desconocida",
+                "name": "Solo huella observada",
                 "pbrMetallicRoughness": {
                     "baseColorFactor": [0.52, 0.57, 0.64, 1], "roughnessFactor": 0.9
                 },
@@ -202,23 +218,31 @@ class GlbBuilder:
                 },
                 "doubleSided": True,
             },
+            {
+                "name": "Relieve DEM",
+                "pbrMetallicRoughness": {
+                    "baseColorFactor": [0.24, 0.38, 0.22, 1], "roughnessFactor": 1.0
+                },
+                "doubleSided": True,
+            },
         ]
-        images = []
-        if self.textured:
-            for name, png in procedural_textures():
-                images.append({"name": name, "bufferView": self._append(png),
-                               "mimeType": "image/png"})
-            materials.append({"name": "Cubiertas planas", "pbrMetallicRoughness": {}})
         for index, mat in enumerate(materials):
             pbr = mat["pbrMetallicRoughness"]
             pbr["metallicFactor"] = 0.0
-            mat["doubleSided"] = index == 3
-            if self.textured:
-                texture_index = 1 if index == 3 else 2 if index == 4 else 0
-                pbr["baseColorTexture"] = {"index": texture_index}
-                pbr["baseColorFactor"] = [1, 1, 1, 1]
-                pbr["roughnessFactor"] = 0.9
-                mat["extras"] = {"appearance": "procedural", "observed": False}
+            mat["extras"] = {
+                "appearance": "source-classification",
+                "photorealistic": False,
+            }
+        used_materials = sorted({
+            primitive["material"]
+            for mesh in self.meshes
+            for primitive in mesh["primitives"]
+        })
+        material_map = {original: compact for compact, original in enumerate(used_materials)}
+        for mesh in self.meshes:
+            for primitive in mesh["primitives"]:
+                primitive["material"] = material_map[primitive["material"]]
+        materials = [materials[index] for index in used_materials]
         document = {
             "asset": {"version": "2.0", "generator": GENERATOR_VERSION},
             "scene": 0,
@@ -234,11 +258,6 @@ class GlbBuilder:
             "bufferViews": self.buffer_views,
             "buffers": [{"byteLength": len(self.binary)}],
         }
-        if images:
-            document.update({"images": images,
-                             "samplers": [{"magFilter": 9729, "minFilter": 9987,
-                                           "wrapS": 10497, "wrapT": 10497}],
-                             "textures": [{"sampler": 0, "source": i} for i in range(len(images))]})
         json_chunk = json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         while len(json_chunk) % 4:
             json_chunk += b" "
@@ -255,17 +274,64 @@ class GlbBuilder:
 
 def _material_for(building: Building) -> int:
     height_type = str(building.attributes["height_type"].value)
-    return {"explicit": 0, "derived": 1, "estimated": 1, "unknown": 2}.get(height_type, 2)
+    return {
+        "explicit": 0,
+        "derived": 1,
+        "estimated": 1,
+        "footprint_only": 2,
+        "unknown": 2,
+    }.get(height_type, 2)
 
 
 def export_glb(
-    fused: FusedDataset, projection: LocalProjection, path: Path, metadata: dict[str, Any]
+    fused: FusedDataset,
+    projection: LocalProjection,
+    path: Path,
+    metadata: dict[str, Any],
+    terrain: TerrainGrid | None = None,
 ) -> None:
-    builder = GlbBuilder(textured=metadata.get("request", {}).get("material_style") == "procedural")
+    builder = GlbBuilder()
+
+    def terrain_elevation(x: float, y: float) -> float:
+        if terrain is None:
+            return 0.0
+        longitude, latitude = projection.unproject_point(x, y)
+        return terrain.sample(latitude, longitude) - terrain.reference_elevation_m
+
+    if terrain is not None:
+        terrain_vertices, terrain_indices = _mesh_for_terrain(terrain, projection)
+        builder.add_mesh(
+            "terrain-dem",
+            terrain_vertices,
+            terrain_indices,
+            4,
+            {
+                "feature_type": "terrain",
+                "source": terrain.source.get("provider"),
+                "dataset": terrain.source.get("dataset"),
+                "reference_elevation_m": terrain.reference_elevation_m,
+                "elevation_min_m": terrain.source.get("elevation_min_m"),
+                "elevation_max_m": terrain.source.get("elevation_max_m"),
+                "vertical_datum": terrain.source.get("vertical_datum"),
+            },
+        )
     for building in fused.buildings:
         geometry = projection.project_geometry(building.geometry)
         height = float(building.attributes["height"].value)
-        vertices, indices = _mesh_for_extrusion(geometry, height)
+        height_type = str(building.attributes["height_type"].value)
+        centroid = building.geometry.representative_point()
+        ground_absolute = (
+            terrain.sample(float(centroid.y), float(centroid.x)) if terrain is not None else 0.0
+        )
+        ground_scene = (
+            ground_absolute - terrain.reference_elevation_m if terrain is not None else 0.0
+        )
+        if height_type == "footprint_only":
+            vertices, indices = _mesh_for_surface(
+                geometry, elevation=0.08, elevation_sampler=terrain_elevation
+            )
+        else:
+            vertices, indices = _mesh_for_extrusion(geometry, height, ground_scene)
         builder.add_mesh(
             building.id,
             vertices,
@@ -275,7 +341,9 @@ def export_glb(
                 "feature_id": building.id,
                 "geometry_source": building.provider,
                 "height_m": height,
-                "height_type": str(building.attributes["height_type"].value),
+                "height_type": height_type,
+                "ground_elevation_m": ground_absolute if terrain is not None else None,
+                "vertical_datum": terrain.source.get("vertical_datum") if terrain else None,
                 "original_ids": building.original_ids,
             },
         )
@@ -283,14 +351,26 @@ def export_glb(
         line = projection.project_geometry(road.geometry)
         if not isinstance(line, LineString):
             continue
+        if terrain is not None:
+            resolution = max(float(terrain.source.get("pixel_resolution_m", 30.0)), 5.0)
+            line = line.segmentize(resolution)
         surface = line.buffer(road.width_m / 2, cap_style="flat", join_style="mitre")
-        vertices, indices = _mesh_for_surface(surface)
+        vertices, indices = _mesh_for_surface(
+            surface, elevation=0.12, elevation_sampler=terrain_elevation
+        )
         builder.add_mesh(
             road.id,
             vertices,
             indices,
             3,
-            {"feature_id": road.id, "source": road.provider, "road_class": road.road_class},
+            {
+                "feature_id": road.id,
+                "source": road.provider,
+                "road_class": road.road_class,
+                "width_m": road.width_m,
+                "width_source": road.width_source,
+                "width_estimated": road.width_estimated,
+            },
         )
     builder.write(path, metadata)
 
