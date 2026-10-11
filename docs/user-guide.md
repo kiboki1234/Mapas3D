@@ -13,6 +13,18 @@
 
 Puede orbitar con el ratón, usar los botones de vista y seleccionar una malla. Los colores indican altura explícita, derivada o solo huella; cambiar el estilo no descarga datos otra vez.
 
+El estilo inicial **Neutro · geometría** usa una paleta sobria de visualización;
+no representa colores observados de las fachadas o del suelo. Los estilos
+Cartográfico y GIS permiten ver la clasificación de alturas. En el visor puede
+ocultar por separado el relieve, las vías o las huellas sin altura. Esto ayuda a
+inspeccionar los volúmenes disponibles sin modificar el GLB exportado.
+
+El panel cuenta las **huellas** y señala cuántas tienen datos para construir volumen
+3D. Una huella sin altura no es un edificio de cero metros: es un dato incompleto.
+El DEM global no permite deducir las alturas de los techos. Para completar esas
+alturas hacen falta fuentes adicionales con atributos de edificio, catastro o
+mediciones adecuadas; no se asignan alturas arbitrarias en el modo fiel a fuentes.
+
 ## Fidelidad del modelo
 
 - Los contornos de edificios y vías proceden de las fuentes seleccionadas.
@@ -38,4 +50,8 @@ iluminación funcione de forma coherente en otros motores.
 - “Terreno plano” aparece únicamente si el usuario desactiva el DEM.
 - “Cubiertas planas” significa que todavía no se generaron tejados inclinados.
 - Si Overture falla, OSM puede completar la generación y el fallo queda registrado.
+- Una escena con fuentes fallidas no se reutiliza automáticamente desde caché al
+  pulsar Generar; se vuelven a consultar. La consulta Overture usa el índice espacial
+  STAC del SDK oficial y un proceso con límite de 120 segundos. Los fallos del SDK
+  no se guardan como si fueran cobertura vacía.
 

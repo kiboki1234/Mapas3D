@@ -7,23 +7,25 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 import numpy as np
-from shapely import constrained_delaunay_triangles
-from shapely.geometry import LineString, MultiPolygon, Polygon
+from shapely import constrained_delaunay_triangles, make_valid
+from shapely.geometry import LineString, Polygon
 from shapely.geometry.base import BaseGeometry
 from shapely.geometry.polygon import orient
 
 from app.generation.validation import validate_glb as validate_glb
+from app.generation.terrain_surface import TerrainSurface
 from app.models.domain import Building, FusedDataset, TerrainGrid
 from app.projection.service import LocalProjection
 
-GENERATOR_VERSION = "City3D Engine 0.3.3"
+GENERATOR_VERSION = "City3D Engine 0.3.5"
 
 
 def _polygons(geometry: BaseGeometry) -> Iterable[Polygon]:
     if isinstance(geometry, Polygon):
         yield geometry
-    elif isinstance(geometry, MultiPolygon):
-        yield from geometry.geoms
+    elif hasattr(geometry, "geoms"):
+        for part in geometry.geoms:
+            yield from _polygons(part)
 
 
 def _triangles_inside(polygon: Polygon) -> list[Polygon]:
@@ -292,14 +294,10 @@ def export_glb(
 ) -> None:
     builder = GlbBuilder()
 
-    def terrain_elevation(x: float, y: float) -> float:
-        if terrain is None:
-            return 0.0
-        longitude, latitude = projection.unproject_point(x, y)
-        return terrain.sample(latitude, longitude) - terrain.reference_elevation_m
-
+    terrain_surface = None
     if terrain is not None:
         terrain_vertices, terrain_indices = _mesh_for_terrain(terrain, projection)
+        terrain_surface = TerrainSurface(terrain_vertices, terrain_indices)
         builder.add_mesh(
             "terrain-dem",
             terrain_vertices,
@@ -317,6 +315,8 @@ def export_glb(
         )
     for building in fused.buildings:
         geometry = projection.project_geometry(building.geometry)
+        if not geometry.is_valid:
+            geometry = make_valid(geometry)
         height = float(building.attributes["height"].value)
         height_type = str(building.attributes["height_type"].value)
         centroid = building.geometry.representative_point()
@@ -326,11 +326,32 @@ def export_glb(
         ground_scene = (
             ground_absolute - terrain.reference_elevation_m if terrain is not None else 0.0
         )
+        foundation_depth = 0.0
+        draped = terrain_surface.drape(geometry) if terrain_surface else None
+        if draped is not None and len(draped[0]) == 0:
+            continue
         if height_type == "footprint_only":
-            vertices, indices = _mesh_for_surface(
-                geometry, elevation=0.08, elevation_sampler=terrain_elevation
-            )
+            if draped is not None:
+                vertices, indices = draped
+                vertices[:, 1] += 0.06
+            else:
+                vertices, indices = _mesh_for_surface(geometry, elevation=0.06)
         else:
+            if draped is not None:
+                low, high = float(draped[0][:, 1].min()), float(draped[0][:, 1].max())
+                ground_scene = high
+                ground_absolute = high + terrain.reference_elevation_m
+                foundation_depth = high - low
+                if foundation_depth > 0.01:
+                    foundation_vertices, foundation_indices = _mesh_for_extrusion(
+                        geometry, foundation_depth, low
+                    )
+                    builder.add_mesh(
+                        f"{building.id}-foundation", foundation_vertices, foundation_indices, 2,
+                        {"feature_type": "foundation", "feature_id": building.id,
+                         "geometry_source": building.provider, "estimated": True,
+                         "placement_method": "DEM-footprint-range", "depth_m": foundation_depth},
+                    )
             vertices, indices = _mesh_for_extrusion(geometry, height, ground_scene)
         builder.add_mesh(
             building.id,
@@ -339,24 +360,25 @@ def export_glb(
             _material_for(building),
             {
                 "feature_id": building.id,
+                "feature_type": "building",
                 "geometry_source": building.provider,
                 "height_m": height,
                 "height_type": height_type,
                 "ground_elevation_m": ground_absolute if terrain is not None else None,
                 "vertical_datum": terrain.source.get("vertical_datum") if terrain else None,
                 "original_ids": building.original_ids,
+                "foundation_depth_m": foundation_depth,
+                "placement_method": "DEM-footprint-maximum" if terrain else "flat",
             },
         )
     for road in fused.roads:
         line = projection.project_geometry(road.geometry)
         if not isinstance(line, LineString):
             continue
-        if terrain is not None:
-            resolution = max(float(terrain.source.get("pixel_resolution_m", 30.0)), 5.0)
-            line = line.segmentize(resolution)
         surface = line.buffer(road.width_m / 2, cap_style="flat", join_style="mitre")
-        vertices, indices = _mesh_for_surface(
-            surface, elevation=0.12, elevation_sampler=terrain_elevation
+        vertices, indices = (
+            terrain_surface.drape(surface, offset=0.03)
+            if terrain_surface else _mesh_for_surface(surface, elevation=0.03)
         )
         builder.add_mesh(
             road.id,
@@ -365,6 +387,7 @@ def export_glb(
             3,
             {
                 "feature_id": road.id,
+                "feature_type": "road",
                 "source": road.provider,
                 "road_class": road.road_class,
                 "width_m": road.width_m,

@@ -207,3 +207,30 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
   .job-console > button { display: flex; min-height: 42px; justify-content: center; font-size: 11px; }
 }
 
+.viewer-layers {
+  position: absolute;
+  z-index: 2;
+  left: 16px;
+  bottom: 48px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #394453;
+  border-radius: 8px;
+  background: #111923eb;
+  color: #e3e8ef;
+  font-size: 12px;
+}
+.viewer-layers label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+.height-coverage-note {
+  margin: 12px 0;
+  padding: 12px;
+  background: #302b21;
+  border: 1px solid #665437;
+  border-radius: 8px;
+  color: #f0d29b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.height-coverage-note p { margin: 6px 0 0; color: #d5cbb8; }

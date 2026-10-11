@@ -58,6 +58,7 @@ export interface ProviderInfo {
 }
 
 export interface QualityReport {
+  provider_failures?: string[];
   raw_buildings: number;
   unique_buildings: number;
   buildings_by_source_before_fusion: Record<string, number>;

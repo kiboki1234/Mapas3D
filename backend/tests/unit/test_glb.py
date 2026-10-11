@@ -161,10 +161,16 @@ def test_dem_terrain_changes_ground_height_and_is_exported(tmp_path):
         terrain,
     )
     report = validate_glb(path)
-    assert report["meshes"] == 2
+    assert report["meshes"] == 3  # DEM, zócalo de ajuste y edificio.
     raw = path.read_bytes()
     json_length = struct.unpack_from("<I", raw, 12)[0]
     document = json.loads(raw[20:20 + json_length])
     assert document["nodes"][0]["extras"]["feature_type"] == "terrain"
-    assert document["nodes"][1]["extras"]["ground_elevation_m"] > 2790
+    building_node = next(node for node in document["nodes"]
+                         if node["extras"].get("feature_type") == "building")
+    assert building_node["extras"]["ground_elevation_m"] > 2790
+    assert building_node["extras"]["foundation_depth_m"] > 0
+    primitive = document["meshes"][building_node["mesh"]]["primitives"][0]
+    positions = document["accessors"][primitive["attributes"]["POSITION"]]
+    assert positions["max"][1] - positions["min"][1] == pytest.approx(10.0)
 

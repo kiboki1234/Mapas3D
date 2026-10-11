@@ -27,7 +27,7 @@ export const useAppStore = create<AppState>((set) => ({
   providers: [],
   quality: null,
   selectedFeature: null,
-  viewerStyle: "cartographic",
+  viewerStyle: "architectural",
   activeView: "map",
   setJob: (job) => set({ job }),
   setProviders: (providers) => set({ providers }),

@@ -20,6 +20,12 @@ def analyze_quality(
         1 for building in fused.buildings if building.validation_status not in {"valid", "repaired"}
     )
     warnings = list(fused.warnings)
+    footprints = height_types.get("footprint_only", 0)
+    if footprints:
+        warnings.append(
+            f"{footprints} de {total} edificios no tienen altura ni pisos en las fuentes consultadas. "
+            "Se conservan sus huellas; el DEM no proporciona la altura de los edificios."
+        )
     if not total:
         warnings.append(
             "Ningún proveedor devolvió edificios para esta región; no se generaron construcciones ficticias."

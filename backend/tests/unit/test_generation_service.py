@@ -122,3 +122,17 @@ def test_generation_fails_when_all_sources_are_empty(tmp_path: Path):
     assert failed.status == JobStatus.failed
     assert "no devolvieron edificios ni vías" in (failed.error or "")
     assert failed.artifacts == {}
+
+
+def test_partial_result_after_provider_failure_is_not_reused(tmp_path: Path):
+    service = _service(tmp_path)
+    request = _request()
+    quality_path = tmp_path / "partial-quality.json"
+    quality_path.write_text(json.dumps({
+        "unique_buildings": 36, "roads": 106,
+        "provider_failures": ["overture: network unavailable"],
+    }), encoding="utf-8")
+    _store_completed_job(service, request, quality_path)
+    created, cache_hit = service.create(request)
+    assert not cache_hit
+    assert created.status == JobStatus.pending

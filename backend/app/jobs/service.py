@@ -51,6 +51,12 @@ class GenerationService:
             quality = json.loads(Path(quality_path).read_text(encoding="utf-8"))
             if not isinstance(quality, dict):
                 return False
+            # Una fuente fallida debe poder recuperarse en la siguiente generación.
+            if quality.get("provider_failures") or any(
+                event.level == "warning" and "El proveedor " in event.message
+                for event in job.events
+            ):
+                return False
             return int(quality.get("unique_buildings", 0)) > 0 or int(quality.get("roads", 0)) > 0
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             return False
@@ -201,6 +207,7 @@ class GenerationService:
                     ),
                 )
             quality = analyze_quality(results, fused, terrain)
+            quality["provider_failures"] = provider_failures
             scene = build_scene(fused, projection, terrain)
             self._check_cancelled(job_id)
             self.repository.update(
@@ -246,6 +253,7 @@ class GenerationService:
                     ]),
                     "Los edificios sin altura ni pisos observados se muestran solo como huella.",
                     "Las alturas derivadas de pisos usan la conversión indicada por el usuario.",
+                    "La implantación usa la cota máxima del DEM bajo la huella; los zócalos son ajustes geométricos, no cimentaciones medidas.",
                     "El DEM representa el terreno, no la superficie de techos ni vegetación.",
                     "La cobertura observada no equivale a completitud respecto al mundo real.",
                 ],

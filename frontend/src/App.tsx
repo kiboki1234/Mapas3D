@@ -329,9 +329,17 @@ export default function App() {
         <aside className="right-panel panel-scroll">
           <div className="inspector-title"><div><small>INSPECTOR</small><strong>Calidad y objeto</strong></div><ChevronDown size={16} /></div>
           <section className="metric-hero">
-            <div><small>EDIFICIOS ÚNICOS</small><strong>{quality?.unique_buildings ?? "—"}</strong><span>{quality ? `${quality.raw_buildings} observaciones` : "Genere una escena"}</span></div>
+            <div><small>HUELLAS DE EDIFICIOS</small><strong>{quality?.unique_buildings ?? "—"}</strong><span>{quality ? `${quality.height.explicit + quality.height.derived_from_floors + quality.height.estimated_spatial} con altura para volumen 3D` : "Genere una escena"}</span></div>
             <Building2 size={34} />
           </section>
+          {quality && quality.height.footprint_only > 0 && <section className="height-coverage-note" role="status">
+            <strong>{quality.height.footprint_only} edificios sin altura disponible</strong>
+            <p>Se ve su contorno sobre el terreno. Para reconstruir su volumen real hacen falta alturas de otra fuente o datos de catastro/LiDAR. El DEM aporta el relieve, no la altura de los techos.</p>
+          </section>}
+          {Boolean(quality?.provider_failures?.length) && <section className="height-coverage-note" role="status">
+            <strong>Consulta incompleta</strong>
+            <p>No respondieron: {quality!.provider_failures!.map((failure) => failure.split(":")[0]).join(", ")}. Puede volver a generar para reintentar esas fuentes.</p>
+          </section>}
           <div className="metric-grid">
             <div><small>VÍAS</small><strong>{quality?.roads ?? "—"}</strong></div>
             <div><small>DUPLICADOS</small><strong>{quality?.duplicates_merged ?? "—"}</strong></div>
@@ -348,7 +356,7 @@ export default function App() {
             <div className="section-title"><span>Estilo visual</span></div>
             <select aria-label="Estilo visual" value={viewerStyle} onChange={(event) => setViewerStyle(event.target.value as ViewerStyle)}>
               <option value="cartographic">Cartográfico</option>
-              <option value="architectural">Arquitectónico</option>
+              <option value="architectural">Neutro · geometría</option>
               <option value="night">Nocturno</option>
               <option value="gis">Análisis GIS</option>
             </select>
@@ -376,7 +384,7 @@ export default function App() {
               <dl>
                 <div><dt>ID</dt><dd>{selectedFeature.feature_id}</dd></div>
                 <div><dt>Fuente</dt><dd>{selectedFeature.geometry_source ?? selectedFeature.source}</dd></div>
-                {selectedFeature.height_m != null && <div><dt>Altura</dt><dd>{selectedFeature.height_m.toFixed(1)} m · {selectedFeature.height_type}</dd></div>}
+                {selectedFeature.height_m != null && <div><dt>Altura</dt><dd>{selectedFeature.height_type === "footprint_only" ? "Sin dato · solo huella" : `${selectedFeature.height_m.toFixed(1)} m · ${selectedFeature.height_type}`}</dd></div>}
                 {selectedFeature.ground_elevation_m != null && <div><dt>Cota DEM</dt><dd>{selectedFeature.ground_elevation_m.toFixed(1)} m</dd></div>}
                 {selectedFeature.road_class && <div><dt>Clase</dt><dd>{selectedFeature.road_class}</dd></div>}
                 {selectedFeature.width_m != null && <div><dt>Ancho vial</dt><dd>{selectedFeature.width_m.toFixed(1)} m · {selectedFeature.width_estimated ? "derivado" : "observado"}</dd></div>}

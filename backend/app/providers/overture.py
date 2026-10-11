@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from importlib.util import find_spec
+import json
+from pathlib import Path
+import subprocess
+import sys
 from typing import Any
 
 from shapely import make_valid
@@ -51,7 +55,7 @@ class OvertureProvider(GeospatialProvider):
         )
 
     def _rows(self, bbox: BoundingBox) -> tuple[list[dict[str, Any]], bool]:
-        key = self.cache.key("overture-building-v1", bbox.model_dump())
+        key = self.cache.key("overture-building-v2", bbox.model_dump())
         cached = self.cache.read_json(key)
         if cached is not None:
             rows = cached.get("rows", [])
@@ -64,42 +68,28 @@ class OvertureProvider(GeospatialProvider):
                 "El cliente oficial overturemaps no está instalado; ejecute el setup con el extra overture."
             )
         try:
-            from overturemaps import record_batch_reader
-
-            reader = record_batch_reader("building", bbox=bbox.as_tuple())
-            if reader is None:
-                return [], False
-            table = reader.read_all()
-            wanted = [
-                name
-                for name in (
-                    "id",
-                    "geometry",
-                    "version",
-                    "sources",
-                    "names",
-                    "subtype",
-                    "class",
-                    "height",
-                    "num_floors",
-                    "roof_shape",
-                    "roof_height",
-                    "facade_material",
-                    "facade_color",
-                )
-                if name in table.column_names
-            ]
-            rows = table.select(wanted).to_pylist()
-            serializable = []
+            result = subprocess.run(
+                [sys.executable, "-m", "app.providers.overture_download", json.dumps(bbox.as_tuple())],
+                cwd=Path(__file__).resolve().parents[2],
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(result.stderr.strip()[-1500:] or "La descarga Overture falló.")
+            payload = json.loads(result.stdout)
+            rows = payload["rows"]
             for row in rows:
-                serializable.append(
-                    {
-                        key_name: (value.hex() if isinstance(value, bytes) else value)
-                        for key_name, value in row.items()
-                    }
-                )
-            self.cache.write_json(key, {"rows": serializable})
+                row["dataset_release"] = payload.get("release")
+            self.cache.write_json(key, {"rows": rows})
+            for row in rows:
+                if isinstance(row.get("geometry"), str):
+                    row["geometry"] = bytes.fromhex(row["geometry"])
             return rows, False
+        except subprocess.TimeoutExpired as exc:
+            raise ProviderUnavailableError(
+                "Overture superó el límite de 120 segundos. Se continuará con las otras fuentes; "
+                "puede volver a generar para reintentar."
+            ) from exc
         except Exception as exc:  # SDK/network errors vary by Arrow/AWS runtime
             raise ProviderUnavailableError(f"No fue posible consultar Overture: {exc}") from exc
 
@@ -108,6 +98,7 @@ class OvertureProvider(GeospatialProvider):
         buildings: list[Building] = []
         invalid = 0
         versions: set[str] = set()
+        releases: set[str] = set()
         for row in rows:
             raw_geometry = row.get("geometry")
             try:
@@ -144,6 +135,8 @@ class OvertureProvider(GeospatialProvider):
                     attributes["name"] = AttributeValue(primary, self.id)
             if row.get("version") is not None:
                 versions.add(str(row["version"]))
+            if row.get("dataset_release"):
+                releases.add(str(row["dataset_release"]))
             buildings.append(
                 Building(
                     id=f"overture-{feature_id}",
@@ -171,6 +164,7 @@ class OvertureProvider(GeospatialProvider):
                 "source_url": "https://docs.overturemaps.org/getting-data/overturemaps-py/",
                 "release_discovery": "STAC latest",
                 "feature_versions": sorted(versions),
+                "dataset_releases": sorted(releases),
                 "from_cache": from_cache,
                 "raw_feature_count": len(rows),
             },
