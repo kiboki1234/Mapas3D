@@ -36,11 +36,25 @@ class GenerationService:
         payload = request.model_dump_json(exclude_none=True)
         return hashlib.sha256(payload.encode()).hexdigest()
 
+    @staticmethod
+    def _cached_job_has_content(job: GenerationJob) -> bool:
+        """Evita reutilizar escenas vacías creadas durante fallos transitorios de red."""
+        if not job.artifacts or not all(Path(path).exists() for path in job.artifacts.values()):
+            return False
+        quality_path = job.artifacts.get("quality")
+        if not quality_path:
+            return False
+        try:
+            quality = json.loads(Path(quality_path).read_text(encoding="utf-8"))
+            return int(quality.get("unique_buildings", 0)) > 0 or int(quality.get("roads", 0)) > 0
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return False
+
     def create(self, request: GenerationRequest) -> tuple[GenerationJob, bool]:
         validate_profile(request.providers, request.license_profile)
         key = self.request_hash(request)
         cached = self.repository.find_completed(key)
-        if cached and all(Path(path).exists() for path in cached.artifacts.values()):
+        if cached and self._cached_job_has_content(cached):
             return cached, True
         now = datetime.now(timezone.utc)
         job = GenerationJob(
@@ -145,6 +159,15 @@ class GenerationService:
             )
             fused.warnings.extend(license_warnings)
             fused.warnings.extend(provider_failures)
+            if not fused.buildings and not fused.roads:
+                failure_detail = (
+                    " " + " | ".join(provider_failures) if provider_failures else ""
+                )
+                raise RuntimeError(
+                    "Las fuentes seleccionadas no devolvieron edificios ni vías. "
+                    "El resultado vacío no se guardará en caché; intente nuevamente o use "
+                    f"OpenStreetMap.{failure_detail}"
+                )
             quality = analyze_quality(results, fused)
             scene = build_scene(fused, projection)
             self._check_cancelled(job_id)
