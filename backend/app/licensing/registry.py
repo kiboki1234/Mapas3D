@@ -4,6 +4,18 @@ from typing import Any
 
 
 PROVIDERS: dict[str, dict[str, Any]] = {
+    "esa-worldcover": {
+        "name": "ESA WorldCover", "dataset": "ESA WorldCover 2021 v200",
+        "license": "CC-BY-4.0", "commercial": True,
+        "attribution": "© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium. Zanaga et al., 2022, https://doi.org/10.5281/zenodo.7254221",
+        "url": "https://esa-worldcover.org/en/data-access",
+    },
+    "copernicus-dem": {
+        "name": "Copernicus DEM", "dataset": "GLO-30 Public (AWS 2021)",
+        "license": "Copernicus DEM License", "commercial": True,
+        "attribution": "Contains modified Copernicus data (2021). Source: Copernicus DEM GLO-30; DLR e.V. / Airbus Defence and Space GmbH.",
+        "url": "https://spacedata.copernicus.eu/collections/copernicus-digital-elevation-model",
+    },
     "osm": {
         "name": "OpenStreetMap",
         "dataset": "OpenStreetMap",

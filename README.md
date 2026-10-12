@@ -1,8 +1,19 @@
 # City3D Engine
 
-City3D Engine transforma datos geográficos abiertos de una región pequeña en una escena 3D navegable y exportable. Consulta OpenStreetMap y Overture Maps, incorpora relieve DEM Terrarium, normaliza edificios y vías, conserva la procedencia por atributo y genera un archivo GLB con dimensiones métricas.
+City3D Engine transforma datos geográficos abiertos de una región pequeña en una escena 3D navegable y exportable. Consulta OpenStreetMap y Overture Maps, incorpora elevaciones Copernicus/Terrarium o GeoTIFF locales y clasificación ESA WorldCover, normaliza edificios y vías, conserva la procedencia por atributo y genera un archivo GLB con dimensiones métricas.
 
 Esta entrega es un **MVP vertical verificable**, no una reconstrucción fotorealista. El relieve procede de datos DEM reales. Cuando no existe altura ni número de pisos, el edificio se conserva únicamente como huella y no se inventa un volumen.
+
+### Precisión y datos locales (0.4)
+
+- Selector de relieve automático, Copernicus GLO-30, Terrarium o GeoTIFF local.
+- Importación gráfica de edificios GeoJSON y elevaciones DTM/DSM, con fecha, licencia, atribución, unidades y datum declarados.
+- Clasificación ESA WorldCover 2021 opcional sobre el relieve; los colores no son fotografías.
+- Fusión mediante índice espacial, prioridad geométrica local y protección de alturas explícitas frente a predicciones.
+- Inspector con fuente de altura y fecha local; las alturas estimadas se distinguen de las derivadas por pisos.
+- Resolución del dato original separada de la densidad de la malla. Copernicus es DSM, no terreno desnudo.
+
+Consulte [la guía de precisión e importación](docs/precision-workflow.md) para los formatos, límites y funcionalidades todavía pendientes.
 
 ## Flujo implementado
 
@@ -25,9 +36,9 @@ Esta entrega es un **MVP vertical verificable**, no una reconstrucción fotoreal
 | 0 · Investigación | Parcial completada | Arquitectura, riesgos, OSM2World/Overture auditados |
 | 1 · Generador mínimo | Implementada | React + FastAPI + OSM + visor + GLB |
 | 2 · Overture y fusión | Implementada para edificios | Cliente oficial, GERS, procedencia, fusión inicial |
-| 3 · Fuentes complementarias | Pendiente | Se evita consultar Microsoft/Google por duplicado sin justificación |
-| 4 · Relieve | Implementada | DEM Terrarium real, datum, resolución, caché y malla ajustada |
-| 5 · Ambientación | Pendiente | Sin vegetación procedural engañosa |
+| 3 · Fuentes complementarias | Parcial | GeoJSON local; Microsoft/Google directos y TEMPO siguen pendientes |
+| 4 · Relieve | Implementada para GeoTIFF y fuentes globales | Copernicus, Terrarium, GeoTIFF DTM/DSM, unidades, NoData, datum y resolución |
+| 5 · Ambientación | Clasificación implementada | ESA WorldCover 2021 opcional; sin árboles ficticios ni fotografía |
 | 6 · Optimización | Parcial | Caché y límites; faltan sectores/LOD avanzado |
 | 7 · Exportación | Parcial | GLB + JSON + atribuciones; falta ZIP/Blender/Godot automatizado |
 | 8 · Estabilización | En curso | Pruebas locales y scripts Windows disponibles |

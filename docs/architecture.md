@@ -77,3 +77,7 @@ altura se apoyan sobre la elevación de su ubicación.
 - Overpass público no ofrece SLA y debe reemplazarse por extractos para uso sostenido.
 - Los tejados siguen siendo planos; las formas inclinadas requieren datos y una fase LOD1.
 
+# Ampliación modular 0.4
+
+Las importaciones se aíslan en `datasets/store.py` y `api/datasets.py`; los adaptadores `providers/local.py`, `raster_dem.py` y `worldcover.py` alimentan el modelo de dominio existente. La selección de relieve y los fallbacks quedan en el orquestador de trabajos. Se conserva el monolito FastAPI: no se añadieron servicios, colas externas ni dependencias de pago. La fusión usa STRtree para limitar las comparaciones espaciales. Véanse [decisiones, seguridad y errores aprendidos](precision-workflow.md).
+

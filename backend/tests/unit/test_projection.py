@@ -31,3 +31,13 @@ def test_bounding_box_contains_center():
 
 import pytest
 
+
+@pytest.mark.parametrize("latitude, epsg", [(86, 32661), (-85, 32761)])
+def test_polar_regions_use_ups(latitude, epsg):
+    assert LocalProjection.at(latitude, 20).epsg == epsg
+
+
+def test_antimeridian_crossing_has_actionable_error():
+    with pytest.raises(ValueError, match="antimeridiano"):
+        bounding_box_from_center(0, 179.9999, 1000)
+

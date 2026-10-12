@@ -18,6 +18,11 @@ export interface GenerationRequest {
   include_buildings: boolean;
   include_roads: boolean;
   include_terrain: boolean;
+  terrain_source?: "auto" | "copernicus" | "terrarium" | "local";
+  terrain_dataset_id?: string;
+  building_dataset_ids?: string[];
+  include_landcover?: boolean;
+  refresh?: boolean;
   material_style?: "source";
   height_mode?: "source" | "estimated";
   lod: "lod0" | "lod1";
@@ -58,6 +63,7 @@ export interface ProviderInfo {
 }
 
 export interface QualityReport {
+  landcover?: { dataset: string; source_date: string; pixel_resolution_m: number } | null;
   provider_failures?: string[];
   raw_buildings: number;
   unique_buildings: number;
@@ -80,6 +86,10 @@ export interface QualityReport {
     mode: string;
     coverage: number | null;
     provider?: string | null;
+    dataset?: string | null;
+    surface_type?: string | null;
+    vertical_datum?: string | null;
+    output_grid_spacing_m?: number | null;
     elevation_min_m?: number | null;
     elevation_max_m?: number | null;
     reference_elevation_m?: number | null;
@@ -104,6 +114,11 @@ export interface SelectedFeature {
   source?: string;
   height_m?: number;
   height_type?: string;
+  height_source?: string;
+  height_estimated?: boolean;
+  height_confidence?: number | null;
+  source_date?: string | null;
+  license?: string;
   road_class?: string;
   width_m?: number;
   width_source?: string;
@@ -115,4 +130,21 @@ export interface SelectedFeature {
 }
 
 export type ViewerStyle = "cartographic" | "architectural" | "night" | "gis";
+
+export interface LocalDatasetDescription {
+  name: string;
+  kind: "buildings" | "dtm" | "dsm";
+  license: "CC0-1.0" | "CC-BY-4.0" | "ODbL-1.0" | "CDLA-Permissive-2.0";
+  attribution: string;
+  source_date: string;
+  vertical_datum: string;
+  vertical_unit: "m" | "ft";
+}
+
+export interface LocalDataset extends LocalDatasetDescription {
+  id: string;
+  sha256: string;
+  bounds_wgs84: number[];
+  size_bytes: number;
+}
 

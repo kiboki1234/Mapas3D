@@ -20,6 +20,7 @@ import {
 import { SourceBadge } from "./components/SourceBadge";
 import { ViewerErrorBoundary } from "./components/ViewerErrorBoundary";
 import { GenerationOptions } from "./features/generation/GenerationOptions";
+import { LocalDatasets } from "./features/data-sources/LocalDatasets";
 import { api } from "./services/api";
 import { AreaMap } from "./features/map/AreaMap";
 import { useAppStore } from "./stores/appStore";
@@ -81,6 +82,11 @@ export default function App() {
   const submission = useRef(false);
   const [includeTerrain, setIncludeTerrain] = useState(true);
   const [floorHeight, setFloorHeight] = useState(3);
+  const [terrainSource, setTerrainSource] = useState<"auto" | "copernicus" | "terrarium" | "local">("auto");
+  const [terrainDataset, setTerrainDataset] = useState("");
+  const [buildingDatasets, setBuildingDatasets] = useState<string[]>([]);
+  const [landcover, setLandcover] = useState(false);
+  const [refresh, setRefresh] = useState(false);
 
   useEffect(() => {
     api.providers()
@@ -132,7 +138,8 @@ export default function App() {
 
   const modelUrl = job?.status === "completed" ? api.artifactUrl(job.id, "model") : null;
   const busy = submitting || ACTIVE_STATUSES.has(job?.status ?? "");
-  const canGenerate = selectedProviders.length > 0 && !busy;
+  const canGenerate = (selectedProviders.length > 0 || buildingDatasets.length > 0) && !busy
+    && (!includeTerrain || terrainSource !== "local" || Boolean(terrainDataset));
   const visibleError = error ?? pollError ?? job?.error;
   const coordinateText = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
 
@@ -164,6 +171,11 @@ export default function App() {
       include_buildings: true,
       include_roads: includeRoads,
       include_terrain: includeTerrain,
+      terrain_source: terrainSource,
+      terrain_dataset_id: terrainSource === "local" && includeTerrain ? terrainDataset : undefined,
+      building_dataset_ids: buildingDatasets,
+      include_landcover: includeTerrain && landcover,
+      refresh,
       material_style: "source",
       height_mode: "source",
       lod: "lod0",
@@ -212,6 +224,7 @@ export default function App() {
     return [
       ["Explícita", quality.height.explicit, "explicit"],
       ["Derivada", quality.height.derived_from_floors, "derived"],
+      ["Estimada", quality.height.estimated_spatial, "estimated"],
       ["Solo huella", quality.height.footprint_only ?? 0, "footprint_only"],
     ] as const;
   }, [quality]);
@@ -291,7 +304,15 @@ export default function App() {
               onChange={(event) => setIncludeTerrain(event.target.checked)} />
           </label>
           <GenerationOptions floorHeight={floorHeight} disabled={busy}
-            onFloorHeight={setFloorHeight} />
+            onFloorHeight={setFloorHeight} terrainSource={terrainSource} onTerrainSource={setTerrainSource}
+            includeTerrain={includeTerrain} landcover={landcover} onLandcover={setLandcover}
+            refresh={refresh} onRefresh={setRefresh} />
+          <LocalDatasets disabled={busy} buildings={buildingDatasets} terrain={terrainDataset}
+            onBuildings={setBuildingDatasets} onTerrain={(id) => {
+              setTerrainDataset(id);
+              if (id) { setTerrainSource("local"); setIncludeTerrain(true); }
+              else if (terrainSource === "local") setTerrainSource("auto");
+            }} />
           <button className="generate-button" onClick={() => void generate()} disabled={!canGenerate || ACTIVE_STATUSES.has(job?.status ?? "")}>
             {job && ACTIVE_STATUSES.has(job.status) ? <LoaderCircle className="spin" size={18} /> : <Play size={18} fill="currentColor" />}
             {submitting ? "Iniciando…" : job && ACTIVE_STATUSES.has(job.status) ? statusLabels[job.status] : "Generar escenario"}
@@ -321,7 +342,7 @@ export default function App() {
             </ViewerErrorBoundary>
           )}
           <div className="stage-status">
-            <span><MapPin size={13} /> UTM {latitude < 0 ? "sur" : "norte"} · Metros</span>
+            <span><MapPin size={13} /> {latitude >= 84 || latitude < -80 ? "UPS" : "UTM"} {latitude < 0 ? "sur" : "norte"} · Metros</span>
             <span>{Math.round(Math.PI * radius * radius / 10_000) / 100} km²</span>
           </div>
         </section>
@@ -368,8 +389,10 @@ export default function App() {
               Elevación {quality.terrain.elevation_min_m?.toFixed(1)}–{quality.terrain.elevation_max_m?.toFixed(1)} m ·
               resolución de píxel ≈ {quality.terrain.pixel_resolution_m?.toFixed(1)} m.
             </p>}
+            {quality.terrain.available && <p>{quality.terrain.dataset ?? quality.terrain.provider} · {quality.terrain.surface_type} · {quality.terrain.vertical_datum}</p>}
+            {quality.landcover && <p>{quality.landcover.dataset} · píxel nominal {quality.landcover.pixel_resolution_m} m · colores temáticos, no fotográficos.</p>}
             {Object.entries(quality.buildings_by_source_before_fusion).map(([source, count]) => (
-              <div className="legend-row" key={source}><span /><span>{source === "osm" ? "OpenStreetMap" : "Overture"}</span><b>{count}</b></div>
+              <div className="legend-row" key={source}><span /><span>{source === "osm" ? "OpenStreetMap" : source.startsWith("local:") ? "Archivo local" : "Overture"}</span><b>{count}</b></div>
             ))}
             <p>Recuentos antes de fusionar duplicados.</p>
             <p>Los colores clasifican la fuente de altura; no son texturas de fachadas.</p>
@@ -385,6 +408,9 @@ export default function App() {
                 <div><dt>ID</dt><dd>{selectedFeature.feature_id}</dd></div>
                 <div><dt>Fuente</dt><dd>{selectedFeature.geometry_source ?? selectedFeature.source}</dd></div>
                 {selectedFeature.height_m != null && <div><dt>Altura</dt><dd>{selectedFeature.height_type === "footprint_only" ? "Sin dato · solo huella" : `${selectedFeature.height_m.toFixed(1)} m · ${selectedFeature.height_type}`}</dd></div>}
+                {selectedFeature.height_source && <div><dt>Fuente de altura</dt><dd>{selectedFeature.height_source}</dd></div>}
+                {selectedFeature.source_date && <div><dt>Fecha del dato</dt><dd>{selectedFeature.source_date}</dd></div>}
+                {selectedFeature.license && <div><dt>Licencia</dt><dd>{selectedFeature.license}</dd></div>}
                 {selectedFeature.ground_elevation_m != null && <div><dt>Cota DEM</dt><dd>{selectedFeature.ground_elevation_m.toFixed(1)} m</dd></div>}
                 {selectedFeature.road_class && <div><dt>Clase</dt><dd>{selectedFeature.road_class}</dd></div>}
                 {selectedFeature.width_m != null && <div><dt>Ancho vial</dt><dd>{selectedFeature.width_m.toFixed(1)} m · {selectedFeature.width_estimated ? "derivado" : "observado"}</dd></div>}

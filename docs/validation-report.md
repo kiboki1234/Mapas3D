@@ -88,9 +88,37 @@ Resultado registrado originalmente: 10 pruebas superadas.
 - El navegador de verificación rechazó el acceso por su política. La inspección
   visual final queda pendiente; la validación anterior cubre geometría, API y GLB.
 
+## Actualización 0.4.1 — 11 de octubre de 2026 (America/Guayaquil)
+
+Historia verificada: seleccionar datos globales/locales → trabajo FastAPI → normalización/fusión → relieve y clasificación → GLB y trazabilidad.
+
+| Límite del flujo | Estado y evidencia |
+|---|---|
+| Interfaz compilable | `npm run build`: TypeScript y Vite correctos |
+| Interfaz HTTP → API | Frontend HTTP 200; `/api/datasets/local` a través de Vite devuelve `enabled: true` y lista de archivos |
+| API de importación → generación | Tests de carga GeoJSON/GeoTIFF, trabajo completo, descarga GLB, metadatos y atribuciones, sin red |
+| API → fuentes reales | Overture release `2026-09-23.1`, Copernicus y WorldCover consultados con red; OSM reutiliza caché de datos reales |
+| Datos → GLB | Trabajo `8025a333-c69d-4cee-be5f-9ea78bb7a1b0`, completado, 223 mallas |
+| GLB → validador independiente | Khronos glTF Validator: 0 errores, 0 advertencias, 0 informativos |
+| Respuesta → representación visual | Pendiente: política del navegador impide la inspección automatizada; no se declara validación visual |
+
+Prueba real: centro ESPE/Sangolquí `(-0.314861, -78.443472)`, radio 250 m:
+
+- 117 huellas Overture y 36 OSM, 36 duplicados resueltos, 117 edificios únicos y 106 vías. Es una mejora de disponibilidad frente a OSM para este recorte, no una medición de completitud real.
+- Alturas: 0 explícitas, 1 derivada de pisos, 116 huellas sin altura. Overture no añadió alturas en este recorte.
+- Copernicus: 2487,811–2514,963 m, referencia 2500,229 m sobre EGM2008, píxel ≈30,922 m y paso de malla ≈7,865 m. Interpolar no mejora precisión nativa.
+- WorldCover 2021: clases arbolado, pastizal, cultivo, construido y suelo desnudo presentes. No se agregaron árboles individuales.
+- Sin fallos de proveedor en este trabajo. Los COG de elevación y cobertura se comprobaron primero con red y después se reutilizaron sus recortes cacheados en la generación.
+
+Batería local: **69 tests correctos**. Incluye reproyección UTM, UPS, orientación norte/sur, conversión pies/metros, NoData, área exterior, origen no autorizado, licencia desconocida, límites y limpieza de cargas, prioridad de geometría local, fusión sin mutar entradas, referencias OSM, categorías de alturas, fallback de terreno y fallo no fatal de WorldCover. Una advertencia de deprecación de Starlette/httpx permanece; no fallan tests.
+
+Reproducir la prueba real, desde `backend`: `.venv\\Scripts\\python.exe -m app.scripts.verify_precision`. Requiere Internet para fuentes no cacheadas. Artefactos en `data/generated/<id>/`; no se incluyen en Git. Desde `frontend`, validar con `npm run validate:glb -- ..\\data\\generated\\<id>\\city3d.glb`.
+
+La arquitectura sigue las guías de módulos backend y componentes React separados; no se añadieron servicios de despliegue. No se publicó esta versión. El protocolo de verificación se aplicó a API, datos y exportación; su paso visual sigue bloqueado por el entorno.
+
 ## Pendientes externos
 
-- Consulta real simultánea Overture + OSM en Sangolquí (la prueba actual completó con OSM; el catálogo remoto de Overture no respondió en este entorno).
+- Validación visual final del visor y sus nuevos controles.
 - Apertura del GLB generado con datos reales en Blender y Godot 4.
 - Casos de zona urbana densa, rural, montaña, datos escasos, sin datos y fallos inducidos.
 - Medición comparable de rendimiento y memoria.

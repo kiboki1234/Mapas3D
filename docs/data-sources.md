@@ -43,3 +43,12 @@
 
 Los proveedores se consultan secuencialmente para no abusar servicios públicos. Un fallo queda en los eventos y metadatos; el trabajo continúa si otra fuente produjo información válida. Si no hay datos, el sistema no inventa edificios.
 
+# Fuentes añadidas en 0.4
+
+- Copernicus GLO-30 Public (AWS, release 2021): DSM, metros, EGM2008, cobertura pública con huecos regionales. Lectura de ventanas COG; fallback Terrarium solo en modo automático.
+- ESA WorldCover 2021 v200: clases de suelo, CC BY 4.0, muestreo categórico por vecino más cercano, sin árboles individuales.
+- GeoJSON local WGS84: huellas y alturas/pisos con procedencia declarada, licencia validada contra lista admitida y hash del archivo.
+- GeoTIFF local: DTM/DSM, CRS y datum vertical declarados, unidades m/ft, reproyección y comprobación de NoData.
+
+Los adaptadores directos Microsoft/Google y las alturas raster TEMPO siguen pendientes. Consulte [detalle de fuentes y límites](precision-workflow.md).
+

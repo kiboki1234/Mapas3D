@@ -15,9 +15,10 @@ from shapely.geometry.polygon import orient
 from app.generation.validation import validate_glb as validate_glb
 from app.generation.terrain_surface import TerrainSurface
 from app.models.domain import Building, FusedDataset, TerrainGrid
+from app.providers.worldcover import CLASSES as LANDCOVER_CLASSES
 from app.projection.service import LocalProjection
 
-GENERATOR_VERSION = "City3D Engine 0.3.5"
+GENERATOR_VERSION = "City3D Engine 0.4.1"
 
 
 def _polygons(geometry: BaseGeometry) -> Iterable[Polygon]:
@@ -149,6 +150,7 @@ class GlbBuilder:
         indices: np.ndarray,
         material: int,
         extras: dict[str, Any],
+        triangle_materials: np.ndarray | None = None,
     ) -> None:
         if len(vertices) == 0 or len(indices) == 0:
             return
@@ -165,7 +167,9 @@ class GlbBuilder:
         attributes = {"POSITION": self._attribute(unique[:, :3], "VEC3"),
                       "NORMAL": self._attribute(unique[:, 3:6], "VEC3")}
         triangle_indices = inverse.reshape(-1, 3)
-        groups = [(material, triangle_indices)]
+        groups = [(material, triangle_indices)] if triangle_materials is None else [
+            (int(value), triangle_indices[triangle_materials == value])
+            for value in np.unique(triangle_materials)]
         primitives = []
         for material_id, group_indices in groups:
             if not len(group_indices):
@@ -228,6 +232,14 @@ class GlbBuilder:
                 "doubleSided": True,
             },
         ]
+        materials.append({"name": "Altura estimada", "pbrMetallicRoughness": {
+            "baseColorFactor": [0.95, 0.67, 0.12, 1], "roughnessFactor": 0.85}, "doubleSided": True})
+        for code, (name, color) in LANDCOVER_CLASSES.items():
+            srgb = [int(color[i:i+2], 16) / 255 for i in (0, 2, 4)]
+            linear = [value / 12.92 if value <= .04045 else ((value + .055) / 1.055) ** 2.4 for value in srgb]
+            materials.append({"name": f"WorldCover {code}: {name}", "pbrMetallicRoughness": {
+                "baseColorFactor": linear + [1],
+                "roughnessFactor": 1.0}, "doubleSided": True})
         for index, mat in enumerate(materials):
             pbr = mat["pbrMetallicRoughness"]
             pbr["metallicFactor"] = 0.0
@@ -279,7 +291,7 @@ def _material_for(building: Building) -> int:
     return {
         "explicit": 0,
         "derived": 1,
-        "estimated": 1,
+        "estimated": 5,
         "footprint_only": 2,
         "unknown": 2,
     }.get(height_type, 2)
@@ -298,6 +310,15 @@ def export_glb(
     if terrain is not None:
         terrain_vertices, terrain_indices = _mesh_for_terrain(terrain, projection)
         terrain_surface = TerrainSurface(terrain_vertices, terrain_indices)
+        triangle_materials = None
+        if terrain.landcover is not None:
+            triangles = terrain_indices.reshape(-1, 3)
+            columns = len(terrain.longitudes)
+            rows_at_centroid = np.rint((triangles // columns).mean(axis=1)).astype(int)
+            columns_at_centroid = np.rint((triangles % columns).mean(axis=1)).astype(int)
+            codes = terrain.landcover[rows_at_centroid, columns_at_centroid]
+            mapping = {code: 6 + index for index, code in enumerate(LANDCOVER_CLASSES)}
+            triangle_materials = np.array([mapping[int(code)] for code in codes])
         builder.add_mesh(
             "terrain-dem",
             terrain_vertices,
@@ -311,7 +332,9 @@ def export_glb(
                 "elevation_min_m": terrain.source.get("elevation_min_m"),
                 "elevation_max_m": terrain.source.get("elevation_max_m"),
                 "vertical_datum": terrain.source.get("vertical_datum"),
+                "landcover_source": terrain.landcover_source,
             },
+            triangle_materials=triangle_materials,
         )
     for building in fused.buildings:
         geometry = projection.project_geometry(building.geometry)
@@ -364,6 +387,11 @@ def export_glb(
                 "geometry_source": building.provider,
                 "height_m": height,
                 "height_type": height_type,
+                "height_source": building.attributes["height"].source,
+                "height_estimated": building.attributes["height"].estimated,
+                "height_confidence": building.attributes["height"].confidence,
+                "source_date": building.attributes["source_date"].value if "source_date" in building.attributes else None,
+                "license": building.license,
                 "ground_elevation_m": ground_absolute if terrain is not None else None,
                 "vertical_datum": terrain.source.get("vertical_datum") if terrain else None,
                 "original_ids": building.original_ids,

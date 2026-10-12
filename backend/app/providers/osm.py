@@ -21,13 +21,14 @@ HEIGHT_NUMBER = re.compile(r"[-+]?\d+(?:[.,]\d+)?")
 def _number(value: Any) -> float | None:
     if value is None:
         return None
-    match = HEIGHT_NUMBER.search(str(value))
+    text = str(value).strip().lower().replace(",", ".")
+    feet_inches = re.fullmatch(r"(\d+(?:\.\d+)?)\s*'\s*(\d+(?:\.\d+)?)?\s*\"?", text)
+    if feet_inches:
+        return float(feet_inches[1]) * .3048 + float(feet_inches[2] or 0) * .0254
+    match = re.fullmatch(r"([-+]?\d+(?:\.\d+)?)\s*(m|ft|feet)?", text)
     if not match:
-        return None
-    try:
-        return float(match.group(0).replace(",", "."))
-    except ValueError:
-        return None
+        return None  # Ranges, multiple values and unknown units are ambiguous.
+    return float(match[1]) * (.3048 if match[2] in {"ft", "feet"} else 1)
 
 
 def _polygon_from_points(points: list[dict[str, Any]]) -> Polygon | MultiPolygon | None:
@@ -220,10 +221,13 @@ class OpenStreetMapProvider(GeospatialProvider):
                 height = _number(tags.get("height"))
                 levels = _number(tags.get("building:levels"))
                 if height and 0 < height <= 1000:
-                    attributes["height"] = AttributeValue(height, self.id, confidence=0.9)
-                    attributes["height_type"] = AttributeValue("explicit", self.id)
+                    estimated = "estimat" in str(tags.get("source:height", "")).lower()
+                    attributes["height"] = AttributeValue(height, self.id, estimated=estimated)
+                    attributes["height_type"] = AttributeValue("estimated" if estimated else "explicit", self.id)
+                    if tags.get("source:height"):
+                        attributes["height_method"] = AttributeValue(tags["source:height"], self.id)
                 if levels and 0 < levels <= 300:
-                    attributes["num_floors"] = AttributeValue(int(levels), self.id, confidence=0.85)
+                    attributes["num_floors"] = AttributeValue(levels, self.id)
                 buildings.append(
                     Building(
                         id=f"osm-{element.get('type')}-{element.get('id')}",
@@ -233,7 +237,7 @@ class OpenStreetMapProvider(GeospatialProvider):
                         attributes=attributes,
                         source_records=[{"dataset": "OpenStreetMap", "record_id": feature_id}],
                         license="ODbL-1.0",
-                        confidence=0.9,
+                        confidence=None,
                     )
                 )
             elif include_roads and "highway" in tags:

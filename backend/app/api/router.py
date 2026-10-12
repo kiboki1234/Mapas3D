@@ -49,12 +49,14 @@ def capabilities(request: Request) -> dict[str, Any]:
         "generation": [
             "buildings-lod0", "roads", "dem-terrain", "glb", "metadata", "provenance"
         ],
-        "coordinate_systems": ["WGS84", "local UTM"],
+        "coordinate_systems": ["WGS84", "local UTM", "polar UPS"],
         "maximum_radius_m": settings.max_radius_m,
         "terrain": {
             "implemented": True,
-            "provider": "Mapzen Terrain Tiles / Terrarium",
-            "vertical_datum": "EGM96 para cobertura derivada de SRTM",
+            "providers": ["copernicus", "terrarium", "local"],
+            "default": "auto: Copernicus, fallback Terrarium",
+            "local_formats": ["GeoTIFF (DTM/DSM)", "GeoJSON (building footprints)"],
+            "note": "El datum vertical depende del dataset. DSM no equivale a terreno desnudo.",
         },
         "osm2world": {"implemented": False, "mode": "optional future adapter"},
         "cache": cache_stats,
@@ -73,7 +75,10 @@ def preview_region(
 ) -> dict[str, Any]:
     if payload.radius_m > settings.max_radius_m:
         raise HTTPException(422, f"El radio máximo configurado es {settings.max_radius_m} m")
-    bbox = bounding_box_from_center(payload.latitude, payload.longitude, payload.radius_m)
+    try:
+        bbox = bounding_box_from_center(payload.latitude, payload.longitude, payload.radius_m)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
     area_km2 = math.pi * payload.radius_m**2 / 1_000_000
     return {
         "center": {"latitude": payload.latitude, "longitude": payload.longitude},

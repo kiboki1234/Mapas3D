@@ -37,6 +37,13 @@ class Settings(BaseSettings):
         "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
     )
     terrain_zoom: int = Field(default=12, ge=0, le=15)
+    local_imports_enabled: bool = False
+    local_import_max_mb: int = Field(default=64, ge=1, le=256)
+    local_import_quota_mb: int = Field(default=512, ge=64, le=4096)
+
+    @property
+    def imports_dir(self) -> Path:
+        return self.data_dir / "imports"
 
     @property
     def origins(self) -> list[str]:

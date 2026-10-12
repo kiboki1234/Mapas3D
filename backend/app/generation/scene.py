@@ -80,6 +80,8 @@ def build_scene(
             "longitudes": terrain.longitudes.round(8).tolist(),
             "latitudes": terrain.latitudes.round(8).tolist(),
             "elevations_m": terrain.elevations_m.round(3).tolist(),
+            "landcover": terrain.landcover.tolist() if terrain.landcover is not None else None,
+            "landcover_source": terrain.landcover_source,
         }
     return {
         "schema_version": "1.0",

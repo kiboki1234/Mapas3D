@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import math
 from typing import Any
 
 from shapely import make_valid
@@ -28,7 +29,7 @@ def _source_records(value: Any) -> list[dict[str, Any]]:
     result = []
     for item in value:
         if isinstance(item, dict):
-            result.append({key: str(val) if val is not None else None for key, val in item.items()})
+            result.append(dict(item))
     return result
 
 
@@ -116,14 +117,21 @@ class OvertureProvider(GeospatialProvider):
             feature_id = str(row.get("id"))
             records = _source_records(row.get("sources"))
             attributes: dict[str, AttributeValue] = {}
-            if row.get("height") is not None:
+            if isinstance(row.get("height"), (float, int)) and math.isfinite(row["height"]) and 0 < row["height"] <= 1000:
+                height_records = [item for item in records if str(item.get("property", "")).lstrip("/") == "height"]
+                if not height_records:
+                    height_records = [item for item in records if not item.get("property")]
+                source_names = sorted({str(item.get("dataset")) for item in height_records if item.get("dataset")})
+                height_source = "overture:" + ",".join(source_names) if source_names else self.id
+                estimated = any(any(token in name.lower() for token in ("microsoft", "google", "ml", "tempo")) for name in source_names)
                 attributes["height"] = AttributeValue(
-                    float(row["height"]), self.id, confidence=0.9
+                    float(row["height"]), height_source, estimated=estimated
                 )
-                attributes["height_type"] = AttributeValue("explicit", self.id)
+                attributes["height_type"] = AttributeValue("estimated" if estimated else "explicit", height_source)
+                attributes["height_provenance"] = AttributeValue(height_records, self.id)
             if row.get("num_floors") is not None:
                 attributes["num_floors"] = AttributeValue(
-                    int(row["num_floors"]), self.id, confidence=0.85
+                    int(row["num_floors"]), self.id
                 )
             for key_name in ("subtype", "class", "roof_shape", "roof_height", "facade_material", "facade_color"):
                 if row.get(key_name) is not None:
@@ -146,7 +154,7 @@ class OvertureProvider(GeospatialProvider):
                     attributes=attributes,
                     source_records=records,
                     license="ODbL-1.0",
-                    confidence=0.85,
+                    confidence=None,
                 )
             )
         warnings = []

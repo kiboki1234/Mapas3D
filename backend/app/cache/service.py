@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 
 class FileCache:
@@ -31,9 +32,12 @@ class FileCache:
 
     def write_json(self, key: str, value: Any) -> Path:
         path = self.path_for(key)
-        temporary = path.with_suffix(".tmp")
-        temporary.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
-        temporary.replace(path)
+        temporary = path.with_suffix(f".{uuid4().hex}.tmp")
+        try:
+            temporary.write_text(json.dumps(value, ensure_ascii=False, allow_nan=False), encoding="utf-8")
+            temporary.replace(path)
+        finally:
+            temporary.unlink(missing_ok=True)
         return path
 
     def read_bytes(self, key: str, suffix: str) -> bytes | None:
@@ -45,9 +49,12 @@ class FileCache:
 
     def write_bytes(self, key: str, value: bytes, suffix: str) -> Path:
         path = self.path_for(key, suffix)
-        temporary = path.with_suffix(path.suffix + ".tmp")
-        temporary.write_bytes(value)
-        temporary.replace(path)
+        temporary = path.with_suffix(f".{uuid4().hex}.tmp")
+        try:
+            temporary.write_bytes(value)
+            temporary.replace(path)
+        finally:
+            temporary.unlink(missing_ok=True)
         return path
 
     def stats(self) -> dict[str, int]:

@@ -82,6 +82,8 @@ class TerrariumTerrainProvider:
         return float(top * (1 - ty) + bottom * ty)
 
     def fetch(self, bbox: BoundingBox) -> TerrainGrid:
+        if bbox.south < -85.05112878 or bbox.north > 85.05112878:
+            raise ProviderUnavailableError("Terrarium no cubre latitudes polares fuera de Web Mercator; use Copernicus o un GeoTIFF local")
         zoom = self.settings.terrain_zoom
         # 33x33 conserva la resolución efectiva SRTM (~30 m) para el radio máximo de 1 km.
         sample_count = 33 if max(bbox.east - bbox.west, bbox.north - bbox.south) < 0.01 else 65
@@ -130,6 +132,7 @@ class TerrariumTerrainProvider:
             "grid_size": [sample_count, sample_count],
             "pixel_resolution_m": round(resolution_m, 2),
             "vertical_datum": "EGM96 geoid for SRTM-derived coverage",
+            "surface_type": "mixed DEM; regional source dependent",
             "imagery_sources": sorted(imagery_sources),
             "elevation_min_m": round(float(elevations.min()), 3),
             "elevation_max_m": round(float(elevations.max()), 3),

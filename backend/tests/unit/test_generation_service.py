@@ -136,3 +136,54 @@ def test_partial_result_after_provider_failure_is_not_reused(tmp_path: Path):
     created, cache_hit = service.create(request)
     assert not cache_hit
     assert created.status == JobStatus.pending
+
+
+def test_force_regeneration_bypasses_completed_model(tmp_path):
+    service = _service(tmp_path)
+    request = _request()
+    path = tmp_path / "q.json"
+    path.write_text(json.dumps({"unique_buildings": 1, "roads": 0}), encoding="utf-8")
+    _store_completed_job(service, request, path)
+    request.refresh = True
+    job, cached = service.create(request)
+    assert not cached
+    assert job.id != "cached-job"
+
+
+def test_terrain_fallback_and_optional_landcover_failure(tmp_path, monkeypatch):
+    import numpy as np
+    from shapely.geometry import box
+    from app.models.domain import Building, TerrainGrid
+
+    provider = EmptyProvider()
+    monkeypatch.setattr(provider, "fetch", lambda bbox, include_roads: ProviderResult("osm",
+        [Building("test", box(-78.4435, -.3149, -78.4434, -.3148), "osm", {"osm": "way/1"})],
+        [], {"provider": "osm"}))
+    service = _service(tmp_path, {"osm": provider})
+
+    def failure(*args):
+        raise RuntimeError("test source offline")
+
+    class Backup:
+        def fetch(self, bbox):
+            return TerrainGrid(np.linspace(bbox.west, bbox.east, 3), np.linspace(bbox.south, bbox.north, 3),
+                np.zeros((3, 3)), 0, {"provider": "mapzen-terrain", "elevation_min_m": 0, "elevation_max_m": 0})
+
+    service.terrain_provider = Backup()
+    monkeypatch.setattr(service.copernicus, "fetch", failure)
+    monkeypatch.setattr("app.jobs.service.WorldCoverProvider.apply", failure)
+    request = _request()
+    request.include_terrain = True
+    request.include_landcover = True
+    job, _ = service.create(request)
+    service.process(job.id)
+    result = service.repository.get(job.id)
+    assert result.status == JobStatus.completed, result.error
+    quality = json.loads(Path(result.artifacts["quality"]).read_text(encoding="utf-8"))
+    assert len(quality["provider_failures"]) == 2
+    assert quality["landcover"] is None
+    assert not service._cached_job_has_content(result)
+    request.terrain_source = "copernicus"
+    job, _ = service.create(request)
+    service.process(job.id)
+    assert service.repository.get(job.id).status == JobStatus.failed  # Explicit selection is strict.

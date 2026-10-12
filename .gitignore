@@ -25,6 +25,7 @@ data/overture/**
 data/buildings/**
 data/dem/**
 data/landcover/**
+data/imports/**
 data/*.sqlite3
 !data/**/.gitkeep
 

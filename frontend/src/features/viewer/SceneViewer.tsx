@@ -35,7 +35,7 @@ function Model({ url, style, layers }: { url: string; style: ViewerStyle; layers
       if (object instanceof THREE.Mesh) {
         // Los edificios con fachada y cubierta separadas cargan como un grupo glTF.
         let source: THREE.Object3D | null = object;
-        while (source && !source.userData.feature_id) source = source.parent;
+        while (source && !source.userData.feature_id && !source.userData.feature_type) source = source.parent;
         if (source) object.userData = { ...source.userData, ...object.userData };
         object.material = Array.isArray(object.material)
           ? object.material.map((material) => material.clone())
@@ -44,7 +44,10 @@ function Model({ url, style, layers }: { url: string; style: ViewerStyle; layers
         object.receiveShadow = true;
         const materials = Array.isArray(object.material) ? object.material : [object.material];
         materials.forEach((material) => {
-          if (material instanceof THREE.MeshStandardMaterial) material.userData.originalMap = material.map;
+          if (material instanceof THREE.MeshStandardMaterial) {
+            material.userData.originalMap = material.map;
+            material.userData.originalColor = material.color.clone();
+          }
         });
       }
     });
@@ -58,7 +61,7 @@ function Model({ url, style, layers }: { url: string; style: ViewerStyle; layers
       const category = data.feature_type === "terrain"
         ? "terrain"
         : data.road_class ? "road" : data.height_type ?? "unknown";
-      const color = palette[style][category] ?? palette[style].unknown;
+      const color = category === "estimated" && style !== "architectural" ? "#f2ab22" : palette[style][category] ?? palette[style].unknown;
       object.visible = category === "terrain" ? layers.terrain
         : category === "road" ? layers.roads
         : category === "footprint_only" ? layers.footprints : true;
@@ -67,6 +70,9 @@ function Model({ url, style, layers }: { url: string; style: ViewerStyle; layers
         if (material instanceof THREE.MeshStandardMaterial) {
           material.map = style === "architectural" ? material.userData.originalMap ?? null : null;
           material.color.set(material.map ? "#ffffff" : color);
+          if (category === "terrain" && object.userData.landcover_source && style !== "night") {
+            material.color.copy(material.userData.originalColor);
+          }
           material.roughness = style === "architectural" ? 0.62 : 0.85;
           material.metalness = style === "night" ? 0.15 : 0.02;
           // Capas cartográficas próximas al suelo: conservar la prueba de

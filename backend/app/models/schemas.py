@@ -49,6 +49,11 @@ class GenerationRequest(RegionPreviewRequest):
     include_buildings: bool = True
     include_roads: bool = True
     include_terrain: bool = True
+    include_landcover: bool = False
+    terrain_source: Literal["auto", "copernicus", "terrarium", "local"] = "auto"
+    terrain_dataset_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
+    building_dataset_ids: list[str] = Field(default_factory=list, max_length=5)
+    refresh: bool = False
     material_style: Literal["source"] = "source"
     height_mode: Literal["source", "estimated"] = "source"
     lod: Literal["lod0", "lod1"] = "lod0"
@@ -60,9 +65,22 @@ class GenerationRequest(RegionPreviewRequest):
     @classmethod
     def unique_providers(cls, value: list[str]) -> list[str]:
         result = list(dict.fromkeys(value))
-        if not result:
-            raise ValueError("Debe seleccionar al menos un proveedor")
         return result
+
+    @model_validator(mode="after")
+    def validate_inputs(self) -> "GenerationRequest":
+        import re
+        if self.include_landcover and not self.include_terrain:
+            raise ValueError("Active el relieve para representar WorldCover sobre su superficie")
+        if not self.providers and not self.building_dataset_ids:
+            raise ValueError("Seleccione una fuente o un archivo local de edificios")
+        if any(not re.fullmatch(r"[a-f0-9]{32}", item) for item in self.building_dataset_ids):
+            raise ValueError("Identificador de dataset inválido")
+        if len(set(self.building_dataset_ids)) != len(self.building_dataset_ids):
+            raise ValueError("No repita datasets locales")
+        if self.include_terrain and self.terrain_source == "local" and not self.terrain_dataset_id:
+            raise ValueError("Seleccione un GeoTIFF local para el relieve")
+        return self
 
     @field_validator("material_style", mode="before")
     @classmethod

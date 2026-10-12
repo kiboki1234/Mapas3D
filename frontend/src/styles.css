@@ -234,3 +234,16 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
   line-height: 1.5;
 }
 .height-coverage-note p { margin: 6px 0 0; color: #d5cbb8; }
+/* Local data stays in a separate, compact workflow with native labelled controls. */
+.local-datasets { margin: 14px 0; padding: 12px; border: 1px solid #2a3443; border-radius: 8px; }
+.local-datasets summary { cursor: pointer; font-size: 12px; font-weight: 600; }
+.local-datasets fieldset { min-width: 0; margin: 12px 0; border: 1px solid #2a3443; padding: 10px; }
+.local-datasets legend { color: #a7b6cc; font-size: 11px; }
+.local-datasets label, .generation-options > label { display: block; margin: 8px 0; font-size: 11px; }
+.local-datasets input:not([type=checkbox]), .local-datasets select, .generation-options select {
+  display: block; width: 100%; min-width: 0; margin-top: 5px; padding: 7px;
+  color: #e5ebf4; background: #101722; border: 1px solid #2a3443; border-radius: 5px;
+}
+.local-datasets p { font-size: 11px; line-height: 1.5; color: #9ba9bc; overflow-wrap: anywhere; }
+.local-datasets .import-error { color: #ffb4a9; }
+.dot.estimated { background: #f2ab22; }

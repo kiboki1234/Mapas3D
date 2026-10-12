@@ -19,6 +19,11 @@ from app.models.schemas import GenerationJob, GenerationRequest, JobEvent, JobSt
 from app.projection.service import LocalProjection, bounding_box_from_center
 from app.providers.base import GeospatialProvider
 from app.providers.terrain import TerrainProvider
+from app.providers.raster_dem import CopernicusTerrainProvider, local_terrain
+from app.providers.local import fetch_local_buildings
+from app.datasets.store import DatasetStore
+from app.cache.service import FileCache
+from app.providers.worldcover import WorldCoverProvider
 
 
 class GenerationService:
@@ -33,10 +38,12 @@ class GenerationService:
         self.repository = repository
         self.providers = providers
         self.terrain_provider = terrain_provider
+        self.datasets = DatasetStore(settings)
+        self.copernicus = CopernicusTerrainProvider(FileCache(settings.dem_cache_dir))
 
     @staticmethod
     def request_hash(request: GenerationRequest) -> str:
-        payload = GENERATOR_VERSION + ":" + request.model_dump_json(exclude_none=True)
+        payload = GENERATOR_VERSION + ":" + request.model_dump_json(exclude_none=True, exclude={"refresh"})
         return hashlib.sha256(payload.encode()).hexdigest()
 
     @staticmethod
@@ -62,10 +69,17 @@ class GenerationService:
             return False
 
     def create(self, request: GenerationRequest) -> tuple[GenerationJob, bool]:
+        bounding_box_from_center(request.latitude, request.longitude, request.radius_m)
         validate_profile(request.providers, request.license_profile)
+        for dataset_id in request.building_dataset_ids:
+            if self.datasets.get(dataset_id)["kind"] != "buildings":
+                raise ValueError("Seleccione un GeoJSON de edificios")
+        if request.include_terrain and request.terrain_source == "local":
+            if self.datasets.get(request.terrain_dataset_id)["kind"] not in {"dtm", "dsm"}:
+                raise ValueError("Seleccione un GeoTIFF DEM")
         key = self.request_hash(request)
         cached = self.repository.find_completed(key)
-        if cached and self._cached_job_has_content(cached):
+        if cached and not request.refresh and self._cached_job_has_content(cached):
             return cached, True
         now = datetime.now(timezone.utc)
         job = GenerationJob(
@@ -122,6 +136,10 @@ class GenerationService:
             )
             results: list[ProviderResult] = []
             provider_failures: list[str] = []
+            if request.include_buildings:
+                for dataset_id in request.building_dataset_ids:
+                    self._check_cancelled(job_id)
+                    results.append(fetch_local_buildings(self.datasets, dataset_id, bbox))
             for provider_id in request.providers:
                 self._check_cancelled(job_id)
                 provider = self.providers[provider_id]
@@ -185,15 +203,29 @@ class GenerationService:
                 )
             terrain: TerrainGrid | None = None
             if request.include_terrain:
-                if self.terrain_provider is None:
-                    raise RuntimeError("El relieve fue solicitado, pero no hay proveedor DEM configurado.")
                 self.repository.update(
                     job_id,
                     status=JobStatus.processing_terrain,
                     progress=65,
                     event=JobEvent(message="Descargando y muestreando elevaciones DEM reales."),
                 )
-                terrain = self.terrain_provider.fetch(bbox)
+                if request.terrain_source == "local":
+                    terrain = local_terrain(self.datasets, request.terrain_dataset_id, bbox)
+                elif request.terrain_source in {"auto", "copernicus"}:
+                    try:
+                        terrain = self.copernicus.fetch(bbox)
+                    except Exception as exc:
+                        if request.terrain_source == "copernicus" or self.terrain_provider is None:
+                            raise
+                        message = f"Copernicus no disponible; se usa Terrarium: {exc}"
+                        provider_failures.append(message)
+                        fused.warnings.append(message)
+                        self.repository.update(job_id, event=JobEvent(level="warning", message=message))
+                        terrain = self.terrain_provider.fetch(bbox)
+                elif self.terrain_provider is not None:
+                    terrain = self.terrain_provider.fetch(bbox)
+                else:
+                    raise RuntimeError("No hay proveedor Terrarium configurado")
                 fused.sources.append(terrain.source)
                 fused.warnings.extend(terrain.warnings)
                 self.repository.update(
@@ -206,6 +238,18 @@ class GenerationService:
                         )
                     ),
                 )
+            if request.include_landcover and terrain is not None:
+                self._check_cancelled(job_id)
+                self.repository.update(job_id, event=JobEvent(message="Consultando clasificación de suelo ESA WorldCover 2021."))
+                try:
+                    source = WorldCoverProvider(FileCache(self.settings.cache_dir / "landcover")).apply(terrain, bbox)
+                    fused.sources.append(source)
+                    fused.warnings.append("WorldCover representa clases de superficie de 2021; no es una fotografía ni un inventario de árboles. La malla puede ser más gruesa que el píxel original de 10 m.")
+                except Exception as exc:
+                    message = f"WorldCover no disponible; se conserva el DEM sin clasificación: {exc}"
+                    provider_failures.append(message)
+                    fused.warnings.append(message)
+                    self.repository.update(job_id, event=JobEvent(level="warning", message=message))
             quality = analyze_quality(results, fused, terrain)
             quality["provider_failures"] = provider_failures
             scene = build_scene(fused, projection, terrain)
@@ -217,6 +261,13 @@ class GenerationService:
                 event=JobEvent(message="Generando mallas 3D y paquete de trazabilidad."),
             )
             generated_at = datetime.now(timezone.utc).isoformat()
+            used_providers = list(dict.fromkeys(result.provider for result in results
+                if not result.provider.startswith("local:")))
+            if terrain is not None and not terrain.source["provider"].startswith("local:"):
+                used_providers.append(terrain.source["provider"])
+            if terrain is not None and terrain.landcover_source:
+                used_providers.append("esa-worldcover")
+            local_sources = [source for source in fused.sources if source["provider"].startswith("local:")]
             metadata = {
                 "schema_version": "1.0",
                 "generator_version": GENERATOR_VERSION,
@@ -235,13 +286,9 @@ class GenerationService:
                 "bounding_box": bbox.model_dump(),
                 "coordinate_system": projection.metadata(),
                 "sources": fused.sources,
-                "licenses": [
-                    provider_license(item)
-                    for item in [
-                        *request.providers,
-                        *(["mapzen-terrain"] if terrain is not None else []),
-                    ]
-                ],
+                "licenses": [provider_license(item) for item in used_providers] + [
+                    {key: source.get(key) for key in ("provider", "license", "attribution", "source_date", "sha256")}
+                    for source in local_sources],
                 "quality": quality,
                 "fusion_decisions": fused.fusion_decisions,
                 "object_mapping": {
@@ -254,7 +301,7 @@ class GenerationService:
                     "Los edificios sin altura ni pisos observados se muestran solo como huella.",
                     "Las alturas derivadas de pisos usan la conversión indicada por el usuario.",
                     "La implantación usa la cota máxima del DEM bajo la huella; los zócalos son ajustes geométricos, no cimentaciones medidas.",
-                    "El DEM representa el terreno, no la superficie de techos ni vegetación.",
+                    "Un DSM puede incluir tejados y vegetación; su resolución no permite separar cada edificio del terreno.",
                     "La cobertura observada no equivale a completitud respecto al mundo real.",
                 ],
             }
@@ -271,7 +318,9 @@ class GenerationService:
             self._write_json(paths["quality"], quality)
             self._write_json(paths["sources"], fused.sources)
             paths["attributions"].write_text(
-                attribution_text(request.providers, terrain is not None), encoding="utf-8"
+                attribution_text(used_providers) + "\n" + "\n".join(
+                    f"{source['name']} — {source['attribution']} — {source['license']} — {source['source_date']} — SHA256 {source['sha256']}"
+                    for source in local_sources), encoding="utf-8"
             )
             export_glb(fused, projection, paths["model"], metadata, terrain)
             self.repository.update(

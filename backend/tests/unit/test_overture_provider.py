@@ -65,3 +65,15 @@ def test_height_geometry_release_survive_worker_and_cache(tmp_path, monkeypatch)
     assert second.buildings[0].attributes["height"].value == 14.5
     assert second.source["from_cache"]
     assert second.source["dataset_releases"] == ["test-release"]
+
+
+def test_machine_learned_height_is_not_labelled_explicit(tmp_path, monkeypatch):
+    geometry = Polygon([(-78.444, -.315), (-78.443, -.315), (-78.443, -.314), (-78.444, -.314)])
+    provider = OvertureProvider(FileCache(tmp_path))
+    monkeypatch.setattr(provider, "_rows", lambda bbox: ([{"id": "predicted", "geometry": geometry.wkb,
+        "height": 14, "sources": [{"property": "/height", "dataset": "Microsoft ML Buildings", "confidence": .8}]}], False))
+    building = provider.fetch(BBOX).buildings[0]
+    assert building.attributes["height"].estimated
+    assert building.attributes["height_type"].value == "estimated"
+    assert building.attributes["height"].confidence is None
+    assert building.attributes["height_provenance"].value[0]["confidence"] == .8

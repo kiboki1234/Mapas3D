@@ -55,3 +55,7 @@ iluminación funcione de forma coherente en otros motores.
   STAC del SDK oficial y un proceso con límite de 120 segundos. Los fallos del SDK
   no se guardan como si fueran cobertura vacía.
 
+# Actualización 0.4: mayor precisión
+
+El panel **Modelo 3D** permite escoger Copernicus, Terrarium o GeoTIFF local y activar WorldCover. En **Datos locales de mayor detalle** puede cargar catastros GeoJSON y elevaciones GeoTIFF con licencia y procedencia declaradas. Consulte [formatos, pasos y límites](precision-workflow.md). Una altura explícita significa que la fuente declara ese atributo; no certifica una medición topográfica.
+

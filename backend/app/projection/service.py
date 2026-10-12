@@ -19,10 +19,16 @@ def bounding_box_from_center(latitude: float, longitude: float, radius_m: float)
     east_lon, _, _ = GEOD.fwd(longitude, latitude, 90, radius_m)
     _, south_lat, _ = GEOD.fwd(longitude, latitude, 180, radius_m)
     _, north_lat, _ = GEOD.fwd(longitude, latitude, 0, radius_m)
+    if west_lon >= east_lon or south_lat >= north_lat:
+        raise ValueError("La región cruza el antimeridiano o un polo; seleccione sectores separados a cada lado")
     return BoundingBox(west=west_lon, south=south_lat, east=east_lon, north=north_lat)
 
 
 def utm_epsg_for(latitude: float, longitude: float) -> int:
+    if latitude >= 84:
+        return 32661  # UPS north; UTM is not valid at polar latitudes.
+    if latitude < -80:
+        return 32761
     zone = max(1, min(60, int((longitude + 180) / 6) + 1))
     return (32600 if latitude >= 0 else 32700) + zone
 

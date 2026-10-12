@@ -10,6 +10,7 @@ dependencies = [
   "pillow>=11,<13",
   "pydantic-settings>=2.7,<3",
   "pyproj>=3.7,<4",
+  "rasterio>=1.4,<2",
   "shapely>=2.1,<3",
   "uvicorn[standard]>=0.34,<1",
 ]

@@ -39,6 +39,8 @@ def analyze_quality(
                 "Estas métricas describen los datos obtenidos; no estiman el porcentaje real de "
                 "edificios existentes en el territorio."
             ),
+            "explicit_height": "Atributo height declarado por una fuente; no implica medición topográfica certificada.",
+            "confidence": "No se asignan probabilidades de precisión sin una calibración o puntuación publicada por la fuente.",
         },
         "raw_buildings": sum(source_counts.values()),
         "unique_buildings": total,
@@ -66,6 +68,10 @@ def analyze_quality(
             "mode": "dem" if terrain is not None else "flat",
             "coverage": 1.0 if terrain is not None else None,
             "provider": terrain.source.get("provider") if terrain else None,
+            "dataset": terrain.source.get("dataset") if terrain else None,
+            "surface_type": terrain.source.get("surface_type", "mixed DEM") if terrain else None,
+            "vertical_datum": terrain.source.get("vertical_datum") if terrain else None,
+            "output_grid_spacing_m": terrain.source.get("output_grid_spacing_m") if terrain else None,
             "elevation_min_m": terrain.source.get("elevation_min_m") if terrain else None,
             "elevation_max_m": terrain.source.get("elevation_max_m") if terrain else None,
             "reference_elevation_m": (
@@ -73,7 +79,8 @@ def analyze_quality(
             ),
             "pixel_resolution_m": terrain.source.get("pixel_resolution_m") if terrain else None,
         },
-        "vegetation": {"available": False, "mode": "disabled"},
+        "landcover": terrain.landcover_source if terrain else None,
+        "vegetation": {"available": False, "mode": "no individual trees generated"},
         "warnings": warnings,
     }
 
