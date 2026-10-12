@@ -9,7 +9,8 @@ import pytest
 from shapely.geometry import LineString, MultiPolygon, Polygon
 
 from app.generation.glb import (
-    GlbBuilder, _mesh_for_extrusion, _triangles_inside, export_glb, validate_glb,
+    GlbBuilder, _estimate_dsm_ground, _mesh_for_extrusion, _terrain_uv, _triangles_inside,
+    export_glb, validate_glb,
 )
 from app.models.domain import AttributeValue, Building, FusedDataset, Road, TerrainGrid
 from app.projection.service import LocalProjection
@@ -173,4 +174,31 @@ def test_dem_terrain_changes_ground_height_and_is_exported(tmp_path):
     primitive = document["meshes"][building_node["mesh"]]["primitives"][0]
     positions = document["accessors"][primitive["attributes"]["POSITION"]]
     assert positions["max"][1] - positions["min"][1] == pytest.approx(10.0)
+
+
+def test_dsm_ground_uses_neighbourhood_instead_of_roof_peak():
+    coordinates = np.linspace(-20, 20, 5)
+    vertices = np.array(
+        [(x, 20.0 if x == 0 and y == 0 else 0.0, -y)
+         for y in coordinates for x in coordinates],
+        dtype=np.float32,
+    )
+    building = Polygon([(-4, -4), (4, -4), (4, 4), (-4, 4)])
+    high, low, samples = _estimate_dsm_ground(vertices, building, building, 18)
+    assert high == pytest.approx(0.0, abs=0.01)
+    assert low == pytest.approx(0.0, abs=0.01)
+    assert samples >= 6
+
+
+def test_terrain_uv_aligns_north_with_top_of_orthophoto():
+    terrain = TerrainGrid(
+        longitudes=np.array([-1.0, 1.0]),
+        latitudes=np.array([-1.0, 1.0]),
+        elevations_m=np.zeros((2, 2), dtype=np.float32),
+        reference_elevation_m=0,
+        source={},
+    )
+    uv = _terrain_uv(terrain)
+    assert uv[0].tolist() == [0.0, 1.0]  # suroeste
+    assert uv[-1].tolist() == [1.0, 0.0]  # noreste
 

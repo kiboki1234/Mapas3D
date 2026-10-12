@@ -9,7 +9,13 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Query, Request
 from starlette.concurrency import run_in_threadpool
 
-from app.datasets.store import DatasetDescription, DatasetStore, validate_geojson, validate_raster
+from app.datasets.store import (
+    DatasetDescription,
+    DatasetStore,
+    validate_geojson,
+    validate_imagery_raster,
+    validate_raster,
+)
 
 router = APIRouter(prefix="/datasets/local", tags=["local datasets"])
 _upload_lock = Lock()
@@ -41,7 +47,7 @@ async def import_dataset(request: Request, description: str = Query(max_length=2
     try:
         info = DatasetDescription.model_validate_json(description)
         date.fromisoformat(info.source_date)
-        if info.kind != "buildings" and info.vertical_datum == "unknown":
+        if info.kind in {"dtm", "dsm"} and info.vertical_datum == "unknown":
             raise ValueError("Indique el datum vertical del DEM; no se puede inferir del CRS horizontal")
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
@@ -71,7 +77,12 @@ async def import_dataset(request: Request, description: str = Query(max_length=2
                     raise HTTPException(413, "Archivo demasiado grande o cuota local agotada")
                 output.write(chunk)
                 digest.update(chunk)
-        validator = validate_geojson if info.kind == "buildings" else validate_raster
+        validator = {
+            "buildings": validate_geojson,
+            "dtm": validate_raster,
+            "dsm": validate_raster,
+            "imagery": validate_imagery_raster,
+        }[info.kind]
         details = await run_in_threadpool(validator, temporary)
         record = {**info.model_dump(), **details, "id": dataset_id, "sha256": digest.hexdigest(),
                   "size_bytes": count, "imported_at": datetime.now(timezone.utc).isoformat(),

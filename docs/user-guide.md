@@ -33,6 +33,8 @@ mediciones adecuadas; no se asignan alturas arbitrarias en el modo fiel a fuente
 - Una altura explícita se conserva. Una altura derivada usa pisos observados y la conversión indicada.
 - Sin altura ni pisos, se exporta únicamente la huella sobre el terreno.
 - El DEM se decodifica en metros y conserva cota absoluta, datum, resolución y proveedor en metadatos.
+- Si selecciona una ortofoto autorizada, la imagen real se coloca sobre el relieve y queda incrustada en el GLB. Es una vista superior; las fachadas no reciben fotografías inventadas.
+- Cuando el relieve es DSM, la base del edificio se estima desde el terreno vecino fuera de las huellas para evitar usar el tejado como suelo.
 
 Los patios de los polígonos se conservan abiertos y las normales se exportan para que la
 iluminación funcione de forma coherente en otros motores.
@@ -55,7 +57,7 @@ iluminación funcione de forma coherente en otros motores.
   STAC del SDK oficial y un proceso con límite de 120 segundos. Los fallos del SDK
   no se guardan como si fueran cobertura vacía.
 
-# Actualización 0.4: mayor precisión
+# Actualización 0.5: relieve y vista satelital
 
-El panel **Modelo 3D** permite escoger Copernicus, Terrarium o GeoTIFF local y activar WorldCover. En **Datos locales de mayor detalle** puede cargar catastros GeoJSON y elevaciones GeoTIFF con licencia y procedencia declaradas. Consulte [formatos, pasos y límites](precision-workflow.md). Una altura explícita significa que la fuente declara ese atributo; no certifica una medición topográfica.
+El panel **Modelo 3D** permite escoger Copernicus, Terrarium o GeoTIFF local y activar WorldCover. En **Datos locales de mayor detalle** puede cargar catastros GeoJSON, elevaciones y ortofotos GeoTIFF con licencia y procedencia declaradas. La ortofoto se ve en el estilo **Satelital · ortofoto**. Consulte [formatos, pasos y límites](precision-workflow.md). Una altura explícita significa que la fuente declara ese atributo; no certifica una medición topográfica.
 

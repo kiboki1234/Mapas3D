@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 import numpy as np
-from shapely import constrained_delaunay_triangles, make_valid
+from shapely import constrained_delaunay_triangles, contains_xy, make_valid, union_all
 from shapely.geometry import LineString, Polygon
 from shapely.geometry.base import BaseGeometry
 from shapely.geometry.polygon import orient
@@ -18,7 +18,7 @@ from app.models.domain import Building, FusedDataset, TerrainGrid
 from app.providers.worldcover import CLASSES as LANDCOVER_CLASSES
 from app.projection.service import LocalProjection
 
-GENERATOR_VERSION = "City3D Engine 0.4.1"
+GENERATOR_VERSION = "City3D Engine 0.5.0"
 
 
 def _polygons(geometry: BaseGeometry) -> Iterable[Polygon]:
@@ -110,6 +110,60 @@ def _mesh_for_terrain(
     return vertices, np.asarray(indices, dtype="<u4")
 
 
+def _terrain_uv(terrain: TerrainGrid) -> np.ndarray:
+    rows, columns = terrain.elevations_m.shape
+    # La cuadrícula DEM empieza al sur; en glTF V=0 apunta al borde superior/norte.
+    u, v = np.meshgrid(np.linspace(0, 1, columns), np.linspace(1, 0, rows))
+    return np.column_stack((u.ravel(), v.ravel())).astype("<f4")
+
+
+def _estimate_dsm_ground(
+    terrain_vertices: np.ndarray,
+    geometry: BaseGeometry,
+    excluded_buildings: BaseGeometry,
+    search_radius_m: float,
+) -> tuple[float, float, int]:
+    """Ajusta un plano local con muestras externas para evitar usar el tejado del DSM."""
+    xs = terrain_vertices[:, 0].astype(float)
+    ys = -terrain_vertices[:, 2].astype(float)
+    elevations = terrain_vertices[:, 1].astype(float)
+    selected = np.zeros(len(terrain_vertices), dtype=bool)
+    for multiplier in (1.0, 1.75, 2.5):
+        neighbourhood = geometry.buffer(search_radius_m * multiplier)
+        selected = contains_xy(neighbourhood, xs, ys) & ~contains_xy(
+            excluded_buildings.buffer(0.25), xs, ys
+        )
+        if int(selected.sum()) >= 6:
+            break
+    if int(selected.sum()) < 3:
+        point = geometry.representative_point()
+        distances = np.hypot(xs - point.x, ys - point.y)
+        eligible = ~contains_xy(excluded_buildings.buffer(0.25), xs, ys)
+        candidates = np.flatnonzero(eligible)
+        if not len(candidates):
+            candidates = np.arange(len(distances))
+        nearest = candidates[np.argsort(distances[candidates])[: min(6, len(candidates))]]
+        selected[nearest] = True
+    sample_x, sample_y, sample_z = xs[selected], ys[selected], elevations[selected]
+    design = np.column_stack((sample_x, sample_y, np.ones(len(sample_x))))
+    coefficients = np.linalg.lstsq(design, sample_z, rcond=None)[0]
+    residuals = sample_z - design @ coefficients
+    median = float(np.median(residuals))
+    mad = float(np.median(np.abs(residuals - median)))
+    threshold = max(0.75, 3.0 * 1.4826 * mad)
+    keep = np.abs(residuals - median) <= threshold
+    if int(keep.sum()) >= 3:
+        design = design[keep]
+        sample_z = sample_z[keep]
+        coefficients = np.linalg.lstsq(design, sample_z, rcond=None)[0]
+    min_x, min_y, max_x, max_y = geometry.bounds
+    boundary = np.asarray(
+        [(min_x, min_y), (min_x, max_y), (max_x, min_y), (max_x, max_y)], dtype=float
+    )
+    predictions = np.column_stack((boundary[:, 0], boundary[:, 1], np.ones(len(boundary)))) @ coefficients
+    return float(predictions.max()), float(predictions.min()), int(keep.sum())
+
+
 @dataclass
 class GlbBuilder:
     binary: bytearray = field(default_factory=bytearray)
@@ -117,6 +171,9 @@ class GlbBuilder:
     accessors: list[dict[str, Any]] = field(default_factory=list)
     meshes: list[dict[str, Any]] = field(default_factory=list)
     nodes: list[dict[str, Any]] = field(default_factory=list)
+    images: list[dict[str, Any]] = field(default_factory=list)
+    textures: list[dict[str, Any]] = field(default_factory=list)
+    samplers: list[dict[str, Any]] = field(default_factory=list)
 
     def _align(self) -> None:
         while len(self.binary) % 4:
@@ -151,6 +208,7 @@ class GlbBuilder:
         material: int,
         extras: dict[str, Any],
         triangle_materials: np.ndarray | None = None,
+        texcoords: np.ndarray | None = None,
     ) -> None:
         if len(vertices) == 0 or len(indices) == 0:
             return
@@ -162,10 +220,17 @@ class GlbBuilder:
         normals = crosses / lengths[:, None]
         flat = triangles.reshape(-1, 3)
         vertex_normals = np.repeat(normals, 3, axis=0)
-        packed = np.column_stack((flat, vertex_normals)).astype("<f4")
+        parts = [flat, vertex_normals]
+        if texcoords is not None:
+            if len(texcoords) != len(vertices):
+                raise ValueError(f"Malla {name}: cantidad de UV distinta a sus vértices")
+            parts.append(texcoords[indices.reshape(-1)].astype(np.float64))
+        packed = np.column_stack(parts).astype("<f4")
         unique, inverse = np.unique(packed, axis=0, return_inverse=True)
         attributes = {"POSITION": self._attribute(unique[:, :3], "VEC3"),
                       "NORMAL": self._attribute(unique[:, 3:6], "VEC3")}
+        if texcoords is not None:
+            attributes["TEXCOORD_0"] = self._attribute(unique[:, 6:8], "VEC2")
         triangle_indices = inverse.reshape(-1, 3)
         groups = [(material, triangle_indices)] if triangle_materials is None else [
             (int(value), triangle_indices[triangle_materials == value])
@@ -193,6 +258,25 @@ class GlbBuilder:
             }
         )
         self.nodes.append({"name": name, "mesh": mesh_index, "extras": extras})
+
+    def add_png_texture(self, content: bytes, source: dict[str, Any]) -> int:
+        view = self._append(content)
+        self.images.append({
+            "name": source.get("dataset", "Ortofoto"),
+            "bufferView": view,
+            "mimeType": "image/png",
+            "extras": {
+                "provider": source.get("provider"),
+                "source_date": source.get("source_date"),
+                "license": source.get("license"),
+                "attribution": source.get("attribution"),
+                "sha256": source.get("sha256"),
+            },
+        })
+        if not self.samplers:
+            self.samplers.append({"magFilter": 9729, "minFilter": 9987, "wrapS": 33071, "wrapT": 33071})
+        self.textures.append({"sampler": 0, "source": len(self.images) - 1})
+        return len(self.textures) - 1
 
     def write(self, path: Path, metadata: dict[str, Any]) -> None:
         materials = [
@@ -240,13 +324,24 @@ class GlbBuilder:
             materials.append({"name": f"WorldCover {code}: {name}", "pbrMetallicRoughness": {
                 "baseColorFactor": linear + [1],
                 "roughnessFactor": 1.0}, "doubleSided": True})
+        if self.textures:
+            materials.append({
+                "name": "Ortofoto observada",
+                "pbrMetallicRoughness": {
+                    "baseColorFactor": [1, 1, 1, 1],
+                    "baseColorTexture": {"index": 0, "texCoord": 0},
+                    "roughnessFactor": 1.0,
+                },
+                "doubleSided": True,
+                "extras": {"appearance": "observed-orthophoto", "photorealistic": False},
+            })
         for index, mat in enumerate(materials):
             pbr = mat["pbrMetallicRoughness"]
             pbr["metallicFactor"] = 0.0
-            mat["extras"] = {
+            mat.setdefault("extras", {
                 "appearance": "source-classification",
                 "photorealistic": False,
-            }
+            })
         used_materials = sorted({
             primitive["material"]
             for mesh in self.meshes
@@ -272,6 +367,8 @@ class GlbBuilder:
             "bufferViews": self.buffer_views,
             "buffers": [{"byteLength": len(self.binary)}],
         }
+        if self.images:
+            document.update({"images": self.images, "textures": self.textures, "samplers": self.samplers})
         json_chunk = json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         while len(json_chunk) % 4:
             json_chunk += b" "
@@ -309,9 +406,34 @@ def export_glb(
     terrain_surface = None
     if terrain is not None:
         terrain_vertices, terrain_indices = _mesh_for_terrain(terrain, projection)
+        projected_buildings: dict[str, BaseGeometry] = {}
+        for building in fused.buildings:
+            projected = projection.project_geometry(building.geometry)
+            projected_buildings[building.id] = make_valid(projected) if not projected.is_valid else projected
+        building_union = union_all(list(projected_buildings.values())) if projected_buildings else Polygon()
+        dsm_placements: dict[str, tuple[float, float, int]] = {}
+        if str(terrain.source.get("surface_type", "")).upper() == "DSM":
+            radius = max(
+                12.0,
+                float(terrain.source.get("pixel_resolution_m") or 0),
+                float(terrain.source.get("output_grid_spacing_m") or 0) * 2,
+            )
+            for building in fused.buildings:
+                if str(building.attributes["height_type"].value) != "footprint_only":
+                    dsm_placements[building.id] = _estimate_dsm_ground(
+                        terrain_vertices, projected_buildings[building.id], building_union, radius
+                    )
+            xs, ys = terrain_vertices[:, 0], -terrain_vertices[:, 2]
+            for building_id, (base, _, _) in dsm_placements.items():
+                inside = contains_xy(projected_buildings[building_id], xs, ys)
+                terrain_vertices[inside, 1] = base
         terrain_surface = TerrainSurface(terrain_vertices, terrain_indices)
         triangle_materials = None
-        if terrain.landcover is not None:
+        texture_material = None
+        if terrain.imagery_png is not None and terrain.imagery_source is not None:
+            builder.add_png_texture(terrain.imagery_png, terrain.imagery_source)
+            texture_material = 6 + len(LANDCOVER_CLASSES)
+        elif terrain.landcover is not None:
             triangles = terrain_indices.reshape(-1, 3)
             columns = len(terrain.longitudes)
             rows_at_centroid = np.rint((triangles // columns).mean(axis=1)).astype(int)
@@ -323,7 +445,7 @@ def export_glb(
             "terrain-dem",
             terrain_vertices,
             terrain_indices,
-            4,
+            texture_material if texture_material is not None else 4,
             {
                 "feature_type": "terrain",
                 "source": terrain.source.get("provider"),
@@ -333,11 +455,13 @@ def export_glb(
                 "elevation_max_m": terrain.source.get("elevation_max_m"),
                 "vertical_datum": terrain.source.get("vertical_datum"),
                 "landcover_source": terrain.landcover_source,
+                "imagery_source": terrain.imagery_source,
             },
-            triangle_materials=triangle_materials,
+            triangle_materials=None if texture_material is not None else triangle_materials,
+            texcoords=_terrain_uv(terrain) if texture_material is not None else None,
         )
     for building in fused.buildings:
-        geometry = projection.project_geometry(building.geometry)
+        geometry = projected_buildings[building.id] if terrain is not None else projection.project_geometry(building.geometry)
         if not geometry.is_valid:
             geometry = make_valid(geometry)
         height = float(building.attributes["height"].value)
@@ -350,6 +474,8 @@ def export_glb(
             ground_absolute - terrain.reference_elevation_m if terrain is not None else 0.0
         )
         foundation_depth = 0.0
+        placement_method = "flat"
+        ground_sample_count = 0
         draped = terrain_surface.drape(geometry) if terrain_surface else None
         if draped is not None and len(draped[0]) == 0:
             continue
@@ -360,11 +486,28 @@ def export_glb(
             else:
                 vertices, indices = _mesh_for_surface(geometry, elevation=0.06)
         else:
-            if draped is not None:
+            if terrain is not None and building.id in dsm_placements:
+                high, low, ground_sample_count = dsm_placements[building.id]
+                ground_scene = high
+                ground_absolute = high + terrain.reference_elevation_m
+                foundation_depth = max(0.0, high - low)
+                placement_method = "DSM-neighbourhood-robust-plane"
+                if foundation_depth > 0.01:
+                    foundation_vertices, foundation_indices = _mesh_for_extrusion(
+                        geometry, foundation_depth, low
+                    )
+                    builder.add_mesh(
+                        f"{building.id}-foundation", foundation_vertices, foundation_indices, 2,
+                        {"feature_type": "foundation", "feature_id": building.id,
+                         "geometry_source": building.provider, "estimated": True,
+                         "placement_method": placement_method, "depth_m": foundation_depth},
+                    )
+            elif draped is not None:
                 low, high = float(draped[0][:, 1].min()), float(draped[0][:, 1].max())
                 ground_scene = high
                 ground_absolute = high + terrain.reference_elevation_m
                 foundation_depth = high - low
+                placement_method = "DTM-footprint-range"
                 if foundation_depth > 0.01:
                     foundation_vertices, foundation_indices = _mesh_for_extrusion(
                         geometry, foundation_depth, low
@@ -396,7 +539,8 @@ def export_glb(
                 "vertical_datum": terrain.source.get("vertical_datum") if terrain else None,
                 "original_ids": building.original_ids,
                 "foundation_depth_m": foundation_depth,
-                "placement_method": "DEM-footprint-maximum" if terrain else "flat",
+                "placement_method": placement_method,
+                "ground_sample_count": ground_sample_count,
             },
         )
     for road in fused.roads:

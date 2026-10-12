@@ -52,6 +52,7 @@ class GenerationRequest(RegionPreviewRequest):
     include_landcover: bool = False
     terrain_source: Literal["auto", "copernicus", "terrarium", "local"] = "auto"
     terrain_dataset_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
+    imagery_dataset_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     building_dataset_ids: list[str] = Field(default_factory=list, max_length=5)
     refresh: bool = False
     material_style: Literal["source"] = "source"
@@ -72,6 +73,8 @@ class GenerationRequest(RegionPreviewRequest):
         import re
         if self.include_landcover and not self.include_terrain:
             raise ValueError("Active el relieve para representar WorldCover sobre su superficie")
+        if self.imagery_dataset_id and not self.include_terrain:
+            raise ValueError("Active el relieve para colocar la ortofoto sobre su superficie")
         if not self.providers and not self.building_dataset_ids:
             raise ValueError("Seleccione una fuente o un archivo local de edificios")
         if any(not re.fullmatch(r"[a-f0-9]{32}", item) for item in self.building_dataset_ids):

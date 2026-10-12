@@ -21,6 +21,7 @@ from app.providers.base import GeospatialProvider
 from app.providers.terrain import TerrainProvider
 from app.providers.raster_dem import CopernicusTerrainProvider, local_terrain
 from app.providers.local import fetch_local_buildings
+from app.providers.imagery import apply_local_imagery
 from app.datasets.store import DatasetStore
 from app.cache.service import FileCache
 from app.providers.worldcover import WorldCoverProvider
@@ -77,6 +78,9 @@ class GenerationService:
         if request.include_terrain and request.terrain_source == "local":
             if self.datasets.get(request.terrain_dataset_id)["kind"] not in {"dtm", "dsm"}:
                 raise ValueError("Seleccione un GeoTIFF DEM")
+        if request.imagery_dataset_id:
+            if self.datasets.get(request.imagery_dataset_id)["kind"] != "imagery":
+                raise ValueError("Seleccione un GeoTIFF RGB/RGBA de ortofoto")
         key = self.request_hash(request)
         cached = self.repository.find_completed(key)
         if cached and not request.refresh and self._cached_job_has_content(cached):
@@ -250,6 +254,20 @@ class GenerationService:
                     provider_failures.append(message)
                     fused.warnings.append(message)
                     self.repository.update(job_id, event=JobEvent(level="warning", message=message))
+            if request.imagery_dataset_id and terrain is not None:
+                self._check_cancelled(job_id)
+                self.repository.update(
+                    job_id,
+                    event=JobEvent(message="Recortando y ajustando la ortofoto real al relieve."),
+                )
+                source = apply_local_imagery(
+                    self.datasets, request.imagery_dataset_id, bbox, terrain
+                )
+                fused.sources.append(source)
+                fused.warnings.append(
+                    "La ortofoto cubre el terreno y las cubiertas visibles desde arriba; "
+                    "no aporta texturas de fachada ni geometría fotogramétrica."
+                )
             quality = analyze_quality(results, fused, terrain)
             quality["provider_failures"] = provider_failures
             scene = build_scene(fused, projection, terrain)
@@ -275,9 +293,10 @@ class GenerationService:
                     "style": request.material_style,
                     "observed_geometry": True,
                     "photorealistic": False,
+                    "terrain_texture": terrain.imagery_source if terrain else None,
                     "description": (
-                        "Los colores codifican procedencia/calidad. No se presentan texturas "
-                        "sintéticas como fachadas observadas."
+                        "La ortofoto declarada se usa sobre el relieve cuando fue seleccionada. "
+                        "Los edificios conservan materiales de calidad y no se inventan fachadas."
                     ),
                 },
                 "generation_id": job_id,
@@ -300,8 +319,9 @@ class GenerationService:
                     ]),
                     "Los edificios sin altura ni pisos observados se muestran solo como huella.",
                     "Las alturas derivadas de pisos usan la conversión indicada por el usuario.",
-                    "La implantación usa la cota máxima del DEM bajo la huella; los zócalos son ajustes geométricos, no cimentaciones medidas.",
-                    "Un DSM puede incluir tejados y vegetación; su resolución no permite separar cada edificio del terreno.",
+                    "En DTM, el edificio sigue el rango del terreno bajo su huella; el zócalo es un ajuste geométrico, no una cimentación medida.",
+                    "En DSM, la base se estima desde muestras vecinas fuera de edificios para no sumar la altura del tejado dos veces.",
+                    "Un DSM puede incluir tejados y vegetación; con baja resolución la base sigue siendo una estimación, no una medición catastral.",
                     "La cobertura observada no equivale a completitud respecto al mundo real.",
                 ],
             }

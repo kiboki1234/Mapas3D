@@ -1,14 +1,16 @@
 # City3D Engine
 
-City3D Engine transforma datos geográficos abiertos de una región pequeña en una escena 3D navegable y exportable. Consulta OpenStreetMap y Overture Maps, incorpora elevaciones Copernicus/Terrarium o GeoTIFF locales y clasificación ESA WorldCover, normaliza edificios y vías, conserva la procedencia por atributo y genera un archivo GLB con dimensiones métricas.
+City3D Engine transforma datos geográficos abiertos de una región pequeña en una escena 3D navegable y exportable. Consulta OpenStreetMap y Overture Maps, incorpora elevaciones Copernicus/Terrarium o GeoTIFF locales, clasificación ESA WorldCover y ortofotos locales autorizadas, conserva la procedencia por atributo y genera un archivo GLB con dimensiones métricas.
 
 Esta entrega es un **MVP vertical verificable**, no una reconstrucción fotorealista. El relieve procede de datos DEM reales. Cuando no existe altura ni número de pisos, el edificio se conserva únicamente como huella y no se inventa un volumen.
 
-### Precisión y datos locales (0.4)
+### Precisión y datos locales (0.5)
 
 - Selector de relieve automático, Copernicus GLO-30, Terrarium o GeoTIFF local.
 - Importación gráfica de edificios GeoJSON y elevaciones DTM/DSM, con fecha, licencia, atribución, unidades y datum declarados.
 - Clasificación ESA WorldCover 2021 opcional sobre el relieve; los colores no son fotografías.
+- Ortofoto GeoTIFF RGB/RGBA opcional, recortada y embebida en el GLB para una vista satelital real desde arriba.
+- En DSM, la base de edificios con volumen se estima con el terreno vecino para no sumar nuevamente la elevación del tejado.
 - Fusión mediante índice espacial, prioridad geométrica local y protección de alturas explícitas frente a predicciones.
 - Inspector con fuente de altura y fecha local; las alturas estimadas se distinguen de las derivadas por pisos.
 - Resolución del dato original separada de la densidad de la malla. Copernicus es DSM, no terreno desnudo.
@@ -38,7 +40,7 @@ Consulte [la guía de precisión e importación](docs/precision-workflow.md) par
 | 2 · Overture y fusión | Implementada para edificios | Cliente oficial, GERS, procedencia, fusión inicial |
 | 3 · Fuentes complementarias | Parcial | GeoJSON local; Microsoft/Google directos y TEMPO siguen pendientes |
 | 4 · Relieve | Implementada para GeoTIFF y fuentes globales | Copernicus, Terrarium, GeoTIFF DTM/DSM, unidades, NoData, datum y resolución |
-| 5 · Ambientación | Clasificación implementada | ESA WorldCover 2021 opcional; sin árboles ficticios ni fotografía |
+| 5 · Ambientación | Ortofoto y clasificación implementadas | Ortofoto local autorizada y ESA WorldCover; sin fachadas ficticias |
 | 6 · Optimización | Parcial | Caché y límites; faltan sectores/LOD avanzado |
 | 7 · Exportación | Parcial | GLB + JSON + atribuciones; falta ZIP/Blender/Godot automatizado |
 | 8 · Estabilización | En curso | Pruebas locales y scripts Windows disponibles |

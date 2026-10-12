@@ -71,6 +71,8 @@ class TerrainGrid:
     warnings: list[str] = field(default_factory=list)
     landcover: np.ndarray | None = None
     landcover_source: dict[str, Any] | None = None
+    imagery_png: bytes | None = None
+    imagery_source: dict[str, Any] | None = None
 
     def sample(self, latitude: float, longitude: float) -> float:
         """Interpolación bilineal sobre la cuadrícula DEM regular."""

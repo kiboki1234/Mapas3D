@@ -80,6 +80,7 @@ def analyze_quality(
             "pixel_resolution_m": terrain.source.get("pixel_resolution_m") if terrain else None,
         },
         "landcover": terrain.landcover_source if terrain else None,
+        "imagery": terrain.imagery_source if terrain else None,
         "vegetation": {"available": False, "mode": "no individual trees generated"},
         "warnings": warnings,
     }

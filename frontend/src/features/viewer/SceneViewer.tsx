@@ -9,6 +9,7 @@ import type { SelectedFeature, ViewerStyle } from "../../types";
 type CameraPreset = "fit" | "top" | "isometric";
 
 const palette: Record<ViewerStyle, Record<string, string>> = {
+  satellite: { explicit: "#e5e1d9", derived: "#e5e1d9", footprint_only: "#b9a784", unknown: "#b9a784", road: "#42464c", terrain: "#73796e" },
   cartographic: { explicit: "#3b95ff", derived: "#35c98c", footprint_only: "#8993a3", unknown: "#8993a3", road: "#232a34", terrain: "#496f43" },
   architectural: { explicit: "#e5e1d9", derived: "#e5e1d9", footprint_only: "#b9a784", unknown: "#b9a784", road: "#42464c", terrain: "#73796e" },
   night: { explicit: "#45a6ff", derived: "#2be4a7", footprint_only: "#536272", unknown: "#536272", road: "#151922", terrain: "#1c3323" },
@@ -61,14 +62,14 @@ function Model({ url, style, layers }: { url: string; style: ViewerStyle; layers
       const category = data.feature_type === "terrain"
         ? "terrain"
         : data.road_class ? "road" : data.height_type ?? "unknown";
-      const color = category === "estimated" && style !== "architectural" ? "#f2ab22" : palette[style][category] ?? palette[style].unknown;
+      const color = category === "estimated" && !["architectural", "satellite"].includes(style) ? "#f2ab22" : palette[style][category] ?? palette[style].unknown;
       object.visible = category === "terrain" ? layers.terrain
         : category === "road" ? layers.roads
         : category === "footprint_only" ? layers.footprints : true;
       const materials = Array.isArray(object.material) ? object.material : [object.material];
       materials.forEach((material) => {
         if (material instanceof THREE.MeshStandardMaterial) {
-          material.map = style === "architectural" ? material.userData.originalMap ?? null : null;
+          material.map = style === "satellite" ? material.userData.originalMap ?? null : null;
           material.color.set(material.map ? "#ffffff" : color);
           if (category === "terrain" && object.userData.landcover_source && style !== "night") {
             material.color.copy(material.userData.originalColor);

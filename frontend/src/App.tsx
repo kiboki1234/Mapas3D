@@ -84,6 +84,7 @@ export default function App() {
   const [floorHeight, setFloorHeight] = useState(3);
   const [terrainSource, setTerrainSource] = useState<"auto" | "copernicus" | "terrarium" | "local">("auto");
   const [terrainDataset, setTerrainDataset] = useState("");
+  const [imageryDataset, setImageryDataset] = useState("");
   const [buildingDatasets, setBuildingDatasets] = useState<string[]>([]);
   const [landcover, setLandcover] = useState(false);
   const [refresh, setRefresh] = useState(false);
@@ -126,6 +127,7 @@ export default function App() {
       .then((report) => {
         if (cancelled) return;
         setQuality(report);
+        if (report.imagery) setViewerStyle("satellite");
         setActiveView("3d");
       })
       .catch((reason: Error) => {
@@ -134,7 +136,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [job?.id, job?.status, setActiveView, setQuality]);
+  }, [job?.id, job?.status, setActiveView, setQuality, setViewerStyle]);
 
   const modelUrl = job?.status === "completed" ? api.artifactUrl(job.id, "model") : null;
   const busy = submitting || ACTIVE_STATUSES.has(job?.status ?? "");
@@ -173,6 +175,7 @@ export default function App() {
       include_terrain: includeTerrain,
       terrain_source: terrainSource,
       terrain_dataset_id: terrainSource === "local" && includeTerrain ? terrainDataset : undefined,
+      imagery_dataset_id: includeTerrain && imageryDataset ? imageryDataset : undefined,
       building_dataset_ids: buildingDatasets,
       include_landcover: includeTerrain && landcover,
       refresh,
@@ -307,11 +310,14 @@ export default function App() {
             onFloorHeight={setFloorHeight} terrainSource={terrainSource} onTerrainSource={setTerrainSource}
             includeTerrain={includeTerrain} landcover={landcover} onLandcover={setLandcover}
             refresh={refresh} onRefresh={setRefresh} />
-          <LocalDatasets disabled={busy} buildings={buildingDatasets} terrain={terrainDataset}
+          <LocalDatasets disabled={busy} buildings={buildingDatasets} terrain={terrainDataset} imagery={imageryDataset}
             onBuildings={setBuildingDatasets} onTerrain={(id) => {
               setTerrainDataset(id);
               if (id) { setTerrainSource("local"); setIncludeTerrain(true); }
               else if (terrainSource === "local") setTerrainSource("auto");
+            }} onImagery={(id) => {
+              setImageryDataset(id);
+              if (id) setIncludeTerrain(true);
             }} />
           <button className="generate-button" onClick={() => void generate()} disabled={!canGenerate || ACTIVE_STATUSES.has(job?.status ?? "")}>
             {job && ACTIVE_STATUSES.has(job.status) ? <LoaderCircle className="spin" size={18} /> : <Play size={18} fill="currentColor" />}
@@ -376,6 +382,7 @@ export default function App() {
           <section className="inspector-section">
             <div className="section-title"><span>Estilo visual</span></div>
             <select aria-label="Estilo visual" value={viewerStyle} onChange={(event) => setViewerStyle(event.target.value as ViewerStyle)}>
+              <option value="satellite">Satelital · ortofoto</option>
               <option value="cartographic">Cartográfico</option>
               <option value="architectural">Neutro · geometría</option>
               <option value="night">Nocturno</option>
@@ -391,11 +398,12 @@ export default function App() {
             </p>}
             {quality.terrain.available && <p>{quality.terrain.dataset ?? quality.terrain.provider} · {quality.terrain.surface_type} · {quality.terrain.vertical_datum}</p>}
             {quality.landcover && <p>{quality.landcover.dataset} · píxel nominal {quality.landcover.pixel_resolution_m} m · colores temáticos, no fotográficos.</p>}
+            {quality.imagery && <p>{quality.imagery.dataset} · ortofoto real sobre el relieve · píxel ≈ {quality.imagery.pixel_resolution_m.toFixed(2)} m.</p>}
             {Object.entries(quality.buildings_by_source_before_fusion).map(([source, count]) => (
               <div className="legend-row" key={source}><span /><span>{source === "osm" ? "OpenStreetMap" : source.startsWith("local:") ? "Archivo local" : "Overture"}</span><b>{count}</b></div>
             ))}
             <p>Recuentos antes de fusionar duplicados.</p>
-            <p>Los colores clasifican la fuente de altura; no son texturas de fachadas.</p>
+            <p>La ortofoto representa la vista superior; las fachadas siguen sin fotografía lateral.</p>
             <p>Anchos viales: {quality.road_width?.observed ?? 0} observados · {quality.road_width?.derived_from_class ?? 0} derivados de la clase OSM.</p>
             <details><summary>Advertencias ({quality.warnings.length})</summary>
               {quality.warnings.map((warning, index) => <p key={index}>{warning}</p>)}

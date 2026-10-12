@@ -6,11 +6,13 @@ interface Props {
   disabled: boolean;
   buildings: string[];
   terrain: string;
+  imagery: string;
   onBuildings: (ids: string[]) => void;
   onTerrain: (id: string) => void;
+  onImagery: (id: string) => void;
 }
 
-export function LocalDatasets({ disabled, buildings, terrain, onBuildings, onTerrain }: Props) {
+export function LocalDatasets({ disabled, buildings, terrain, imagery, onBuildings, onTerrain, onImagery }: Props) {
   const [datasets, setDatasets] = useState<LocalDataset[]>([]);
   const [enabled, setEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -45,9 +47,11 @@ export function LocalDatasets({ disabled, buildings, terrain, onBuildings, onTer
     setError("");
     try {
       const result = await api.importDataset(file, { ...description,
-        vertical_datum: description.kind === "buildings" ? "unknown" : description.vertical_datum });
+        vertical_datum: description.kind === "dtm" || description.kind === "dsm"
+          ? description.vertical_datum : "unknown" });
       setDatasets((current) => [...current, result]);
       if (result.kind === "buildings") onBuildings([...buildings, result.id].slice(0, 5));
+      else if (result.kind === "imagery") onImagery(result.id);
       else onTerrain(result.id);
       setFile(null);
       if (input.current) input.current.value = "";
@@ -72,8 +76,15 @@ export function LocalDatasets({ disabled, buildings, terrain, onBuildings, onTer
       <label>Relieve local
         <select value={terrain} onChange={(event) => onTerrain(event.target.value)}>
           <option value="">Sin archivo seleccionado</option>
-          {datasets.filter((item) => item.kind !== "buildings").map((item) =>
+          {datasets.filter((item) => item.kind === "dtm" || item.kind === "dsm").map((item) =>
             <option key={item.id} value={item.id}>{item.name} · {item.kind.toUpperCase()} · {item.source_date}</option>)}
+        </select>
+      </label>
+      <label>Vista satelital / ortofoto
+        <select value={imagery} onChange={(event) => onImagery(event.target.value)}>
+          <option value="">Sin imagen seleccionada</option>
+          {datasets.filter((item) => item.kind === "imagery").map((item) =>
+            <option key={item.id} value={item.id}>{item.name} · {item.source_date}</option>)}
         </select>
       </label>
       <p>Los edificios locales tienen prioridad geométrica al coincidir. Las alturas estimadas nunca sustituyen a las explícitas.</p>
@@ -87,6 +98,7 @@ export function LocalDatasets({ disabled, buildings, terrain, onBuildings, onTer
         <option value="buildings">Edificios · GeoJSON WGS84</option>
         <option value="dtm">Terreno desnudo · GeoTIFF DTM</option>
         <option value="dsm">Superficie con tejados · GeoTIFF DSM</option>
+        <option value="imagery">Ortofoto real · GeoTIFF RGB/RGBA</option>
       </select></label>
       <label>Archivo<input ref={input} type="file" accept={description.kind === "buildings" ? ".geojson,.json" : ".tif,.tiff"}
         onChange={(event) => setFile(event.target.files?.[0] ?? null)} /></label>
@@ -100,7 +112,7 @@ export function LocalDatasets({ disabled, buildings, terrain, onBuildings, onTer
       </select></label>
       <label>Autor y atribución requerida<input maxLength={500} value={description.attribution}
         onChange={(event) => setDescription({ ...description, attribution: event.target.value })} /></label>
-      {description.kind !== "buildings" && <>
+      {(description.kind === "dtm" || description.kind === "dsm") && <>
         <label>Datum vertical documentado<input placeholder="Ej.: EGM2008" maxLength={80} value={description.vertical_datum}
           onChange={(event) => setDescription({ ...description, vertical_datum: event.target.value })} /></label>
         <label>Unidad de elevación<select value={description.vertical_unit}
@@ -110,9 +122,11 @@ export function LocalDatasets({ disabled, buildings, terrain, onBuildings, onTer
       </>}
       <p>{description.kind === "buildings"
         ? "Polígonos 2D. Propiedades: height_m (altura sobre el suelo), num_floors, height_estimated y name. No use cotas sobre el nivel del mar como altura. Máximo 10 MB."
-        : "Una banda con elevaciones, CRS y NoData definidos. No mezcle datums. Máximo 64 MB; recorte en QGIS antes de importar."}</p>
+        : description.kind === "imagery"
+          ? "Imagen RGB o RGBA de 8 bits, con CRS y permiso de reutilización. Debe cubrir toda el área. Máximo 64 MB; recórtela en QGIS."
+          : "Una banda con elevaciones, CRS y NoData definidos. No mezcle datums. Máximo 64 MB; recorte en QGIS antes de importar."}</p>
       <button type="button" className="outline-action" onClick={() => void upload()}
-        disabled={!file || !description.name.trim() || !description.attribution.trim() || !description.source_date || (description.kind !== "buildings" && !description.vertical_datum.trim())}>
+        disabled={!file || !description.name.trim() || !description.attribution.trim() || !description.source_date || ((description.kind === "dtm" || description.kind === "dsm") && !description.vertical_datum.trim())}>
         {uploading ? "Validando archivo…" : "Importar y seleccionar"}
       </button>
     </fieldset>

@@ -1,4 +1,4 @@
-# Precisión geográfica — versión 0.4
+# Precisión geográfica — versión 0.5
 
 ## Qué puede hacer esta versión
 
@@ -13,6 +13,8 @@ En **Modelo 3D → Fuente del relieve**:
 - **GeoTIFF local** utiliza exclusivamente el archivo elegido. Un fallo local no provoca una sustitución por un DEM de menor detalle.
 
 Copernicus es un **DSM**: puede contener árboles y tejados. No permite obtener automáticamente la altura de cada edificio, ni equivale a un DTM de terreno desnudo. Las elevaciones Copernicus se interpretan en metros sobre EGM2008. Terrarium depende de sus fuentes regionales. No se mezclan ni restan modelos con datums distintos.
+
+Para apoyar edificios con altura sobre un DSM, City3D no toma el máximo de la huella como suelo: ajusta un plano local robusto con nodos vecinos situados fuera de las huellas de edificios. Así evita sumar la elevación del tejado dos veces. El método y el número de muestras quedan en el nodo GLB. En un DTM mantiene el ajuste directo a la superficie del terreno. Ninguno de los dos métodos sustituye una cota de implantación catastral o LiDAR.
 
 La lectura usa ventanas limitadas (máximo 4 millones de píxeles) y peticiones parciales de GeoTIFF remotos. Se reproyecta la ventana a nodos de una cuadrícula de escena. NoData o cobertura incompleta producen un error; no se rellenan huecos con elevación cero. Los metadatos separan resolución nativa y separación de nodos: una malla más densa no implica mediciones más precisas.
 
@@ -50,6 +52,16 @@ La importación no completa alturas desconocidas. En ausencia de datos conserva 
 
 Seleccione el archivo de relieve en el panel; la fuente cambiará a **GeoTIFF local**. Para trabajar sin red puede desmarcar Overture y OSM y usar edificios más DEM locales. Las vías siguen requiriendo OSM.
 
+### Ortofoto GeoTIFF
+
+- Tres bandas RGB o cuatro RGBA, `uint8`, driver GeoTIFF y CRS definido.
+- Debe ser una ortofoto ya corregida y lista para visualizar; City3D no realiza corrección radiométrica ni fotogrametría.
+- Debe cubrir completamente el área solicitada y contar con una de las licencias admitidas.
+- Se reproyecta a WGS84, se recorta a la región, se convierte a PNG y se incrusta en el GLB con fecha, atribución, licencia y SHA-256.
+- La imagen se aplica solamente al relieve. Desde arriba produce una apariencia satelital; no añade fotografías laterales a las fachadas ni cambia las alturas.
+
+Importe el archivo como **Ortofoto real** y selecciónelo en **Vista satelital / ortofoto**. Al terminar, el visor activa el estilo **Satelital · ortofoto**. No se descargan ni copian teselas de Google Maps: use una fuente cuya licencia permita la exportación y redistribución.
+
 ## Seguridad y despliegue
 
 La importación está disponible por defecto solo para conexiones de desarrollo desde loopback y nombre de host local. En un servidor compartido permanece desactivada; `CITY3D_LOCAL_IMPORTS_ENABLED=true` requiere proteger el servicio con autenticación, cuotas y control de acceso externo. No habilitarlo en un Render público sin esa protección. No se implementó autenticación multiusuario en esta entrega.
@@ -64,10 +76,11 @@ Los datasets se guardan bajo `data/imports`, excluidos de Git. En hosting efíme
 - `api/datasets.py`: streaming acotado y publicación del archivo validado.
 - `providers/local.py`: normalización de edificios locales.
 - `providers/raster_dem.py`: lectura por ventanas, reproyección, Copernicus y GeoTIFF local.
+- `providers/imagery.py`: validación de cobertura, recorte y reproyección de ortofoto local.
 - `providers/worldcover.py`: clasificación categórica y caché.
 - `conflation/service.py`: índice STRtree de candidatos, decisiones y prioridades por atributo. No modifica los objetos originales de los proveedores.
 - `jobs/service.py`: orquestación y fallbacks explícitos, sin mezclar CRS/datums verticales.
-- `generation/glb.py`: exportación con clases WorldCover y metadatos inspeccionables.
+- `generation/glb.py`: apoyo DTM/DSM, UV, textura embebida, clases WorldCover y metadatos inspeccionables.
 - `features/data-sources/LocalDatasets.tsx`: formulario y selección independientes de la pantalla principal; envío en evento, no efecto React.
 
 **Errores aprendidos:** no comparar una unión de referencias OSM contra sí misma al fusionar (podía absorber vecinos); no cambiar altura sin cambiar su categoría; no interpretar pies como metros; no asignar confianza numérica arbitraria; heredar metadatos de grupos GLB cuando el terreno tiene varios materiales; no compartir nombres de temporales entre escritores de caché.
@@ -78,7 +91,7 @@ Los datasets se guardan bajo `data/imports`, excluidos de Git. En hosting efíme
 - Estimaciones automáticas TEMPO / Google 2.5D: no se activaron. TEMPO global público tiene celdas de aproximadamente 100 m y no aporta alturas individuales medidas.
 - Importación directa LAS/LAZ, GeoPackage, Shapefile, PBF y GeoParquet. Para esta versión, convierta huellas a GeoJSON o terreno a GeoTIFF en una herramienta GIS autorizada.
 - Diferencias DSM−DTM: requieren compatibilidad vertical, temporal y resolución; no se calculan automáticamente.
-- Tejados y partes de edificios, puentes/túneles con cotas propias, texturas fotográficas autorizadas, incertidumbre métrica calibrada.
+- Tejados y partes de edificios, puentes/túneles con cotas propias, texturas de fachada, fotogrametría e incertidumbre métrica calibrada.
 - Sectores grandes, workers distribuidos, cuotas multiusuario, limpieza gráfica de datasets y autenticación.
 - Verificación visual del navegador y apertura final en Blender/Godot.
 

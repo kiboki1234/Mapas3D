@@ -15,7 +15,7 @@ from app.core.config import Settings
 class DatasetDescription(BaseModel):
     model_config = {"str_strip_whitespace": True}
     name: str = Field(min_length=1, max_length=120)
-    kind: Literal["buildings", "dtm", "dsm"]
+    kind: Literal["buildings", "dtm", "dsm", "imagery"]
     license: Literal["CC0-1.0", "CC-BY-4.0", "ODbL-1.0", "CDLA-Permissive-2.0"]
     attribution: str = Field(min_length=1, max_length=500)
     source_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
@@ -75,6 +75,34 @@ def validate_raster(path: Path) -> dict:
             raise ValueError("Extensión raster inválida")
         return {"bounds_wgs84": list(bounds), "crs": str(dataset.crs),
                 "shape": [dataset.height, dataset.width], "pixel_size_crs": list(dataset.res)}
+
+
+def validate_imagery_raster(path: Path) -> dict:
+    """Acepta únicamente ortofotos ya preparadas para visualización RGB/RGBA."""
+    import rasterio
+    from rasterio.warp import transform_bounds
+
+    with rasterio.open(path, driver="GTiff") as dataset:
+        if dataset.driver != "GTiff" or not dataset.crs or dataset.count not in {3, 4}:
+            raise ValueError("La ortofoto debe ser un GeoTIFF georreferenciado RGB o RGBA")
+        if dataset.width * dataset.height > 100_000_000:
+            raise ValueError("GeoTIFF demasiado grande; recorte la región")
+        if dataset.transform.b or dataset.transform.d:
+            raise ValueError("Reproyecte la ortofoto a una cuadrícula sin rotación")
+        if any(dtype != "uint8" for dtype in dataset.dtypes):
+            raise ValueError("Exporte la ortofoto como RGB/RGBA de 8 bits, lista para visualizar")
+        bounds = transform_bounds(dataset.crs, "EPSG:4326", *dataset.bounds)
+        if not all(math.isfinite(v) for v in bounds):
+            raise ValueError("Extensión raster inválida")
+        interpretations = [item.name for item in dataset.colorinterp]
+        return {
+            "bounds_wgs84": list(bounds),
+            "crs": str(dataset.crs),
+            "shape": [dataset.height, dataset.width],
+            "pixel_size_crs": list(dataset.res),
+            "bands": dataset.count,
+            "color_interpretation": interpretations,
+        }
 
 
 class DatasetStore:

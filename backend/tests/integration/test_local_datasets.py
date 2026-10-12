@@ -1,4 +1,5 @@
 import json
+import struct
 
 import numpy as np
 import pytest
@@ -124,6 +125,72 @@ def test_real_geotiff_upload_validation(client):
     quality = client.get(f"/api/generations/{job_id}/quality").json()
     assert quality["terrain"]["surface_type"] == "DTM"
     assert quality["terrain"]["elevation_min_m"] == pytest.approx(123)
+
+
+def test_orthophoto_is_embedded_in_glb_with_provenance(client):
+    with MemoryFile() as memory:
+        with memory.open(
+            driver="GTiff", height=32, width=32, count=1, dtype="float32",
+            crs="EPSG:4326", transform=from_bounds(-.01, -.01, .01, .01, 32, 32),
+        ) as dataset:
+            dataset.write(np.full((32, 32), 123.0, dtype="float32"), 1)
+        dem_payload = memory.read()
+    dem_description = {**DESCRIPTION, "name": "DTM prueba", "kind": "dtm", "vertical_datum": "EGM2008"}
+    dem_id = client.post("/api/datasets/local", params={"description": json.dumps(dem_description)},
+                         content=dem_payload).json()["id"]
+    with MemoryFile() as memory:
+        with memory.open(
+            driver="GTiff", height=32, width=32, count=3, dtype="uint8",
+            crs="EPSG:4326", transform=from_bounds(-.01, -.01, .01, .01, 32, 32),
+        ) as dataset:
+            dataset.write(np.full((32, 32), 180, dtype="uint8"), 1)
+            dataset.write(np.full((32, 32), 120, dtype="uint8"), 2)
+            dataset.write(np.full((32, 32), 70, dtype="uint8"), 3)
+        image_payload = memory.read()
+    image_description = {**DESCRIPTION, "name": "Ortofoto prueba", "kind": "imagery"}
+    image_response = client.post(
+        "/api/datasets/local", params={"description": json.dumps(image_description)},
+        content=image_payload,
+    )
+    assert image_response.status_code == 201, image_response.text
+    building_id = upload(client).json()["id"]
+    response = client.post("/api/generations", json={
+        "latitude": 0, "longitude": 0, "radius_m": 100, "providers": [],
+        "building_dataset_ids": [building_id], "include_terrain": True,
+        "terrain_source": "local", "terrain_dataset_id": dem_id,
+        "imagery_dataset_id": image_response.json()["id"],
+    })
+    assert response.status_code == 202, response.text
+    job_id = response.json()["id"]
+    job = client.get(f"/api/generations/{job_id}").json()
+    assert job["status"] == "completed", job
+    quality = client.get(f"/api/generations/{job_id}/quality").json()
+    assert quality["imagery"]["dataset"] == "Ortofoto prueba"
+    raw = client.get(f"/api/generations/{job_id}/model").content
+    json_length = struct.unpack_from("<I", raw, 12)[0]
+    document = json.loads(raw[20:20 + json_length])
+    assert len(document["images"]) == 1
+    assert len(document["textures"]) == 1
+    terrain = document["meshes"][document["nodes"][0]["mesh"]]["primitives"][0]
+    assert "TEXCOORD_0" in terrain["attributes"]
+    assert document["nodes"][0]["extras"]["imagery_source"]["sha256"]
+
+
+def test_single_band_image_is_not_accepted_as_orthophoto(client):
+    with MemoryFile() as memory:
+        with memory.open(
+            driver="GTiff", height=4, width=4, count=1, dtype="uint8",
+            crs="EPSG:4326", transform=from_bounds(-1, -1, 1, 1, 4, 4),
+        ) as dataset:
+            dataset.write(np.ones((4, 4), dtype="uint8"), 1)
+        payload = memory.read()
+    response = client.post(
+        "/api/datasets/local",
+        params={"description": json.dumps({**DESCRIPTION, "kind": "imagery"})},
+        content=payload,
+    )
+    assert response.status_code == 422
+    assert "RGB o RGBA" in response.text
 
 
 def test_request_rejects_invalid_local_selection():

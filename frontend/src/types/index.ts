@@ -20,6 +20,7 @@ export interface GenerationRequest {
   include_terrain: boolean;
   terrain_source?: "auto" | "copernicus" | "terrarium" | "local";
   terrain_dataset_id?: string;
+  imagery_dataset_id?: string;
   building_dataset_ids?: string[];
   include_landcover?: boolean;
   refresh?: boolean;
@@ -64,6 +65,7 @@ export interface ProviderInfo {
 
 export interface QualityReport {
   landcover?: { dataset: string; source_date: string; pixel_resolution_m: number } | null;
+  imagery?: { dataset: string; source_date: string; pixel_resolution_m: number; attribution: string } | null;
   provider_failures?: string[];
   raw_buildings: number;
   unique_buildings: number;
@@ -129,11 +131,11 @@ export interface SelectedFeature {
   original_ids?: Record<string, string>;
 }
 
-export type ViewerStyle = "cartographic" | "architectural" | "night" | "gis";
+export type ViewerStyle = "satellite" | "cartographic" | "architectural" | "night" | "gis";
 
 export interface LocalDatasetDescription {
   name: string;
-  kind: "buildings" | "dtm" | "dsm";
+  kind: "buildings" | "dtm" | "dsm" | "imagery";
   license: "CC0-1.0" | "CC-BY-4.0" | "ODbL-1.0" | "CDLA-Permissive-2.0";
   attribution: string;
   source_date: string;
